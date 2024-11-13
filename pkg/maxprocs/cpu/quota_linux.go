@@ -4,7 +4,7 @@ package cpu
 
 import (
 	"errors"
-	"github.com/brickingsoft/rxp/pkg/internal/maxprocs/cgroups"
+	"github.com/brickingsoft/rxp/pkg/maxprocs/cgroups"
 )
 
 func QuotaToGOMAXPROCS(minValue int, round func(v float64) int) (maxProcs int, status QuotaStatus, err error) {

@@ -1,12 +1,16 @@
 package maxprocs
 
 import (
-	"github.com/brickingsoft/rxp/pkg/internal/maxprocs/cpu"
+	"github.com/brickingsoft/rxp/pkg/maxprocs/cpu"
 	"os"
 	"runtime"
 )
 
 const maxProcsEnvKey = "GOMAXPROCS"
+
+type ProcsFunc func(minValue int, round func(v float64) int) (maxProcs int, status cpu.QuotaStatus, err error)
+
+type RoundQuotaFunc func(v float64) int
 
 type Undo func()
 

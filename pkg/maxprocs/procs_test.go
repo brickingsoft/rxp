@@ -1,7 +1,7 @@
 package maxprocs_test
 
 import (
-	"github.com/brickingsoft/rxp/pkg/internal/maxprocs"
+	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"testing"
 )
 
