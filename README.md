@@ -58,7 +58,7 @@ func Foo[int](ctx context.Context) (future async.Future[int]) {
 		
 		// handle entry
 
-		promise.Succeed("ok")
+		promise.Succeed(1)
 		return
 	})
 }
