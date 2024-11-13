@@ -8,10 +8,6 @@ import (
 
 const maxProcsEnvKey = "GOMAXPROCS"
 
-func currentMaxProcs() int {
-	return runtime.GOMAXPROCS(0)
-}
-
 type Undo func()
 
 func Enable(options Options) (undo Undo, err error) {
@@ -44,7 +40,7 @@ func Enable(options Options) (undo Undo, err error) {
 		return
 	}
 
-	prev := currentMaxProcs()
+	prev := runtime.GOMAXPROCS(0)
 	undo = func() {
 		runtime.GOMAXPROCS(prev)
 	}
