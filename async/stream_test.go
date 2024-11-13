@@ -2,7 +2,6 @@ package async_test
 
 import (
 	"context"
-	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"testing"
 )
@@ -36,7 +35,7 @@ func TestTryStreamPromise(t *testing.T) {
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
-			t.Log("is closed:", rxp.IsCanceled(err))
+			t.Log("is closed:", async.IsCanceled(err))
 			cancel()
 			return
 		}
@@ -68,7 +67,7 @@ func TestMustStreamPromise(t *testing.T) {
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
-			t.Log("is closed:", rxp.IsCanceled(err))
+			t.Log("is closed:", async.IsCanceled(err))
 			cancel()
 			return
 		}
