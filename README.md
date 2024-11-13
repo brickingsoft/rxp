@@ -95,3 +95,7 @@ func RandTask() {
 | github.com/panjf2000/ants/v2 | 2547340 | 468.8 | 0    | 0         |
 | github.com/alitto/pond/v2    | 2619438 | 876.9 | 224  | 7         |
 | github.com/alitto/pond       | 2025330 | 558.5 | 224  | 7         |
+
+## 使用案例
+开源软件
+* [rio](https://github.com/brickingsoft/rio): 异步网络库。
