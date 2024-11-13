@@ -42,7 +42,31 @@ future.OnComplete(func(ctx context.Context, entry int, cause error) {
 	// cause 是失败许诺的错误。
 })
 ```
+建议用法
+```go
+func Foo[int](ctx context.Context) (future async.Future[int]) {
+	promise, ok := async.TryPromise[int](ctx)
+	if !ok {
+		future = async.FailedImmediately[int](ctx, errors.New("err"))
+		return
+	}
+	Bar(ctx).OnComplete(func(ctx context.Context, entry int, cause error) {
+	    if cause != nil {
+			promise.Failed(cause)
+			return
+		}
+		
+		// handle entry
 
+		promise.Succeed("ok")
+		return
+	})
+}
+
+func Bar[string](ctx context.Context) (future async.Future[string]) { 
+	// do something
+}
+```
 ## 压测
 环境
 ```shell
