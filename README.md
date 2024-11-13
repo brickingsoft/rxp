@@ -50,7 +50,7 @@ func Foo[int](ctx context.Context) (future async.Future[int]) {
 		future = async.FailedImmediately[int](ctx, errors.New("err"))
 		return
 	}
-	Bar(ctx).OnComplete(func(ctx context.Context, entry int, cause error) {
+	Bar(ctx).OnComplete(func(ctx context.Context, entry string, cause error) {
 	    if cause != nil {
 			promise.Failed(cause)
 			return
@@ -72,7 +72,6 @@ func Bar[string](ctx context.Context) (future async.Future[string]) {
 ```shell
 // goos: windows
 // goarch: amd64
-// pkg: github.com/brickingsoft/rxp
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 ```
 任务
