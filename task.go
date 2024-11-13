@@ -5,9 +5,15 @@ import (
 	"time"
 )
 
+// Task
+// 任务
 type Task func()
 
+// TaskSubmitter
+// 任务提交器
 type TaskSubmitter interface {
+	// Submit
+	// 提交一个任务
 	Submit(task Task)
 }
 

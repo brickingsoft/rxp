@@ -2,6 +2,8 @@ package async
 
 import "context"
 
+// SucceedImmediately
+// 立刻正确的未来
 func SucceedImmediately[R any](ctx context.Context, r R) (f Future[R]) {
 	f = &immediatelyFuture[R]{
 		ctx:   ctx,
@@ -11,6 +13,8 @@ func SucceedImmediately[R any](ctx context.Context, r R) (f Future[R]) {
 	return
 }
 
+// FailedImmediately
+// 立刻错误的未来
 func FailedImmediately[R any](ctx context.Context, cause error) (f Future[R]) {
 	f = &immediatelyFuture[R]{
 		ctx:   ctx,

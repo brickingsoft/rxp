@@ -8,6 +8,12 @@ import (
 	"sync"
 )
 
+// Composite
+// 组合多个许诺
+//
+// 同时监听未来，并打包结果集。
+//
+// 注意：每一个结果都是独立的，所以错误也是独立的。
 func Composite[R []Result[E], E any](ctx context.Context, promises []Promise[E]) (future Future[R]) {
 	promisesLen := len(promises)
 	if promisesLen == 0 {

@@ -14,43 +14,78 @@ import (
 )
 
 var (
-	ErrClosed      = errors.New("rxp: executors were closed")
+	// ErrClosed 执行池已关闭
+	ErrClosed = errors.New("rxp: executors were closed")
+	// ErrCloseFailed 关闭执行池失败（一般是关闭超时引发）
 	ErrCloseFailed = errors.New("rxp: executors close failed")
 )
 
+// IsClosed
+// 是否为 ErrClosed 错误
 func IsClosed(err error) bool {
 	return errors.Is(err, ErrClosed)
-}
-
-func IsCanceled(err error) bool {
-	return errors.Is(err, context.Canceled)
-}
-
-func IsTimeout(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded)
 }
 
 const (
 	ns500 = 500 * time.Nanosecond
 )
 
+// Executors
+// 执行池
+//
+// 一个 goroutine 池。每个 goroutine 具备一个 TaskSubmitter，通过 TaskSubmitter.Submit 进行任务提交。
+//
+// 当 goroutine 在 MaxGoroutineIdleDuration 后没有新任务，则会释放。
 type Executors interface {
+	// TryExecute
+	// 尝试执行一个任务，如果 goroutine 已满载，则返回 false。
 	TryExecute(ctx context.Context, task Task) (ok bool)
+	// Execute
+	// 执行一个任务，如果 goroutine 已满载，则等待有空闲的。
+	//
+	// 当 context.Context 有错误或者 Executors.Close、Executors.CloseGracefully，则返回错误。
 	Execute(ctx context.Context, task Task) (err error)
+	// Goroutines
+	// 当前 goroutine 数量
 	Goroutines() (n int64)
+	// Tasks
+	// 当前 Task 数量
 	Tasks() (n int64)
+	// TryGetTaskSubmitter
+	// 尝试获取一个 TaskSubmitter
+	//
+	// 如果 goroutine 已满载，则返回 false。
+	// 注意：如果获得后没有提交任务，则需要 ReleaseNotUsedTaskSubmitter 来释放 TaskSubmitter。
+	// 否则对应的 goroutine 不会被释放。
 	TryGetTaskSubmitter() (submitter TaskSubmitter, has bool)
+	// ReleaseNotUsedTaskSubmitter
+	// 释放未使用的 TaskSubmitter。
+	// 当从 TryGetTaskSubmitter 里获得的 TaskSubmitter 已经 Submit 了，则无需释放。
 	ReleaseNotUsedTaskSubmitter(submitter TaskSubmitter)
+	// Close
+	// 关闭
+	//
+	// 此关闭不会等待正在运行的或提交后的任务结束。
+	// 如果需要等待，则使用 CloseGracefully。
+	//
+	// 如果在创建时通过 WithCloseTimeout 设定了关闭超时，则会自动使用 CloseGracefully 进行关闭。
 	Close() (err error)
+	// CloseGracefully
+	// 优雅关闭
+	//
+	// 此关闭会等待正在运行的或提交后的任务结束。
+	// 如果在创建时通过 WithCloseTimeout 设定了关闭超时，则在超时后退出关闭过程。
 	CloseGracefully() (err error)
 }
 
+// New
+// 创建执行池
 func New(options ...Option) Executors {
 	opts := Options{
-		MaxprocsOptions:          maxprocs.Options{},
-		MaxGoroutines:            defaultMaxGoroutines,
-		MaxGoroutineIdleDuration: defaultMaxGoroutineIdleDuration,
-		CloseTimeout:             0,
+		MaxprocsOptions:                maxprocs.Options{},
+		MaxGoroutines:                  defaultMaxGoroutines,
+		MaxReadyGoroutinesIdleDuration: defaultMaxReadyGoroutinesIdleDuration,
+		CloseTimeout:                   0,
 	}
 	if options != nil {
 		for _, option := range options {
@@ -67,34 +102,34 @@ func New(options ...Option) Executors {
 		return nil
 	}
 	exec := &executors{
-		maxGoroutines:            int64(opts.MaxGoroutines),
-		maxGoroutineIdleDuration: opts.MaxGoroutineIdleDuration,
-		locker:                   spin.New(),
-		running:                  atomic.Bool{},
-		ready:                    nil,
-		submitters:               sync.Pool{},
-		tasks:                    new(atomic.Int64),
-		goroutines:               counter.New(),
-		stopCh:                   nil,
-		stopTimeout:              opts.CloseTimeout,
-		undo:                     undo,
+		maxGoroutines:                  int64(opts.MaxGoroutines),
+		maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
+		locker:                         spin.New(),
+		running:                        atomic.Bool{},
+		ready:                          nil,
+		submitters:                     sync.Pool{},
+		tasks:                          new(atomic.Int64),
+		goroutines:                     counter.New(),
+		stopCh:                         nil,
+		stopTimeout:                    opts.CloseTimeout,
+		undo:                           undo,
 	}
 	exec.start()
 	return exec
 }
 
 type executors struct {
-	maxGoroutines            int64
-	maxGoroutineIdleDuration time.Duration
-	locker                   sync.Locker
-	running                  atomic.Bool
-	ready                    []*submitterImpl
-	submitters               sync.Pool
-	tasks                    *atomic.Int64
-	goroutines               *counter.Counter
-	stopCh                   chan struct{}
-	stopTimeout              time.Duration
-	undo                     maxprocs.Undo
+	maxGoroutines                  int64
+	maxReadyGoroutinesIdleDuration time.Duration
+	locker                         sync.Locker
+	running                        atomic.Bool
+	ready                          []*submitterImpl
+	submitters                     sync.Pool
+	tasks                          *atomic.Int64
+	goroutines                     *counter.Counter
+	stopCh                         chan struct{}
+	stopTimeout                    time.Duration
+	undo                           maxprocs.Undo
 }
 
 func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
@@ -211,7 +246,7 @@ func (exec *executors) start() {
 	}
 	go func(exec *executors) {
 		var scratch []*submitterImpl
-		maxExecutorIdleDuration := exec.maxGoroutineIdleDuration
+		maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
 		for {
@@ -236,7 +271,7 @@ func (exec *executors) clean(scratch *[]*submitterImpl) {
 	if !exec.running.Load() {
 		return
 	}
-	maxExecutorIdleDuration := exec.maxGoroutineIdleDuration
+	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 	exec.locker.Lock()
 	ready := exec.ready

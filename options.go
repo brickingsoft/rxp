@@ -7,19 +7,36 @@ import (
 )
 
 const (
-	defaultMaxGoroutines            = 256 * 1024
-	defaultMaxGoroutineIdleDuration = 10 * time.Second
+	defaultMaxGoroutines                  = 256 * 1024
+	defaultMaxReadyGoroutinesIdleDuration = 10 * time.Second
 )
 
+// Option
+// 选项函数
 type Option func(*Options) error
 
+// Options
+// 选项
 type Options struct {
-	MaxprocsOptions          maxprocs.Options
-	MaxGoroutines            int
-	MaxGoroutineIdleDuration time.Duration
-	CloseTimeout             time.Duration
+	// MaxprocsOptions
+	// 最大处理器选项 maxprocs.Options
+	MaxprocsOptions maxprocs.Options
+	// MaxGoroutines
+	// 最大协程数
+	MaxGoroutines int
+	// MaxReadyGoroutinesIdleDuration
+	// 准备中协程最大闲置时长
+	//
+	// 注意：该时长不是一个协程的最大空闲时长，是一组准备中的所有协程的最大空闲时长。
+	// 即时某个协程刚转为空闲状态，但是准备组已经空闲超时，则整个超时，进行释放处理。
+	MaxReadyGoroutinesIdleDuration time.Duration
+	// CloseTimeout
+	// 关闭超时时长
+	CloseTimeout time.Duration
 }
 
+// MinGOMAXPROCS
+// 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。
 func MinGOMAXPROCS(n int) Option {
 	return func(o *Options) error {
 		if n > 2 {
@@ -29,6 +46,8 @@ func MinGOMAXPROCS(n int) Option {
 	}
 }
 
+// Procs
+// 设置最大 GOMAXPROCS 构建函数。
 func Procs(fn maxprocs.ProcsFunc) Option {
 	return func(o *Options) error {
 		if fn == nil {
@@ -39,6 +58,8 @@ func Procs(fn maxprocs.ProcsFunc) Option {
 	}
 }
 
+// RoundQuotaFunc
+// 设置整数配额函数
 func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 	return func(o *Options) error {
 		if fn == nil {
@@ -49,6 +70,8 @@ func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 	}
 }
 
+// MaxGoroutines
+// 设置最大协程数
 func MaxGoroutines(n int) Option {
 	return func(o *Options) error {
 		if n < 1 {
@@ -59,16 +82,20 @@ func MaxGoroutines(n int) Option {
 	}
 }
 
-func MaxGoroutineIdleDuration(d time.Duration) Option {
+// MaxReadyGoroutinesIdleDuration
+// 设置准备中协程最大闲置时长
+func MaxReadyGoroutinesIdleDuration(d time.Duration) Option {
 	return func(o *Options) error {
 		if d < 1 {
-			d = defaultMaxGoroutineIdleDuration
+			d = defaultMaxReadyGoroutinesIdleDuration
 		}
-		o.MaxGoroutineIdleDuration = d
+		o.MaxReadyGoroutinesIdleDuration = d
 		return nil
 	}
 }
 
+// WithCloseTimeout
+// 设置关闭超时时长
 func WithCloseTimeout(timeout time.Duration) Option {
 	return func(o *Options) error {
 		if timeout < 1 {

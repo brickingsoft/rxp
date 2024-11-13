@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rxp"
 	"runtime"
 	"time"
@@ -10,6 +11,24 @@ import (
 const (
 	ns500 = 500 * time.Nanosecond
 )
+
+// IsCanceled
+// 是否为 context.Canceled 错误
+func IsCanceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
+// IsTimeout
+// 是否为 context.DeadlineExceeded 错误
+func IsTimeout(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// IsClosed
+// 是否为 rxp.ErrClosed 错误
+func IsClosed(err error) bool {
+	return errors.Is(err, rxp.ErrClosed)
+}
 
 // Promise
 // 许诺一个未来。
@@ -37,6 +56,7 @@ type Promise[R any] interface {
 
 // TryPromise
 // 尝试获取一个许诺，如果资源已耗光则获取不到。
+//
 // 许诺只能完成一次，完成后则不可再用。
 // 当 Promise.Complete ，Promise.Succeed ，Promise.Fail 后，不必再 Promise.Cancel 来关闭它。
 func TryPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
