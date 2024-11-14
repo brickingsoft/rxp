@@ -85,6 +85,7 @@ func (f *futureImpl[R]) handle() {
 			break
 		}
 	}
+	f.handler = nil
 	if isUnexpectedError {
 		for {
 			ar, ok := <-rch
