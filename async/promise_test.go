@@ -135,7 +135,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 		})
 	})
 	time.Sleep(4 * time.Second)
-	promise1.Cancel()
+	promise1.Succeed(1)
 }
 
 // BenchmarkTryPromise
@@ -144,7 +144,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkTryPromise
-// BenchmarkTryPromise-20    	 2011467	       542.9 ns/op	         0 failed	     260 B/op	       4 allocs/op
+// BenchmarkTryPromise-20    	 2021223	       554.1 ns/op	         0 failed	     268 B/op	       5 allocs/op
 func BenchmarkTryPromise(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()
