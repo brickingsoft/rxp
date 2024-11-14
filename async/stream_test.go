@@ -30,13 +30,10 @@ func TestTryStreamPromise(t *testing.T) {
 		return
 	}
 	future := promise.Future()
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
 			t.Log("is closed:", async.IsCanceled(err))
-			cancel()
 			return
 		}
 		return
@@ -45,7 +42,9 @@ func TestTryStreamPromise(t *testing.T) {
 		promise.Succeed(&Closer{N: i, t: t})
 	}
 	promise.Cancel()
-	<-ctx.Done()
+	for i := 0; i < 10; i++ {
+		promise.Succeed(&Closer{N: i, t: t})
+	}
 }
 
 func TestMustStreamPromise(t *testing.T) {
