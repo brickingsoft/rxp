@@ -54,13 +54,13 @@ func (r result[E]) Cause() error {
 // err: 来自 Promise.Failed() 的错误，或者 Promise.Cancel() 的结果，也可能是 Context.Err() 。
 type ResultHandler[E any] func(ctx context.Context, entry E, cause error)
 
-func tryCloseResultWhenUnexpectedlyErrorOccur[R any](ar result[R]) {
-	if ar.cause == nil {
-		r := ar.entry
-		ri := reflect.ValueOf(r).Interface()
-		closer, isCloser := ri.(io.Closer)
-		if isCloser {
-			_ = closer.Close()
-		}
+func tryCloseResultWhenUnexpectedlyErrorOccur(v any) {
+	if v == nil {
+		return
+	}
+	ri := reflect.ValueOf(v).Interface()
+	closer, isCloser := ri.(io.Closer)
+	if isCloser {
+		_ = closer.Close()
 	}
 }
