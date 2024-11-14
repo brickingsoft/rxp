@@ -143,23 +143,22 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 }
 
 func (f *futureImpl[R]) Complete(r R, err error) {
-	if f.stream {
-		f.locker.Lock()
-		if f.closed {
-			tryCloseResultWhenUnexpectedlyErrorOccur(r)
-			f.locker.Unlock()
-			return
-		}
+	f.locker.Lock()
+	if f.closed {
+		tryCloseResultWhenUnexpectedlyErrorOccur(r)
+		f.locker.Unlock()
+		return
 	}
 	f.rch <- result[R]{
 		entry: r,
 		cause: err,
 	}
-	if f.stream {
-		f.locker.Unlock()
-	} else {
+	if !f.stream {
+		f.closed = true
 		close(f.rch)
 	}
+	f.locker.Unlock()
+	return
 }
 
 func (f *futureImpl[R]) Succeed(r R) {
@@ -174,6 +173,7 @@ func (f *futureImpl[R]) Succeed(r R) {
 		cause: nil,
 	}
 	if !f.stream {
+		f.closed = true
 		close(f.rch)
 	}
 	f.locker.Unlock()
@@ -190,6 +190,7 @@ func (f *futureImpl[R]) Fail(cause error) {
 		cause: cause,
 	}
 	if !f.stream {
+		f.closed = true
 		close(f.rch)
 	}
 	f.locker.Unlock()
