@@ -58,6 +58,16 @@ func MustStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T],
 	return
 }
 
+// IsStreamPromise
+// 判断是否是流
+func IsStreamPromise[T any](promise Promise[T]) bool {
+	if promise == nil {
+		return false
+	}
+	stream := promise.(*futureImpl[T]).stream
+	return stream
+}
+
 func newStreamPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter, buf int) Promise[R] {
 	return newFuture[R](ctx, submitter, buf, true)
 }
