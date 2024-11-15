@@ -20,6 +20,16 @@ type Future[R any] interface {
 	OnComplete(handler ResultHandler[R])
 }
 
+// IsStreamFuture
+// 判断是否是流
+func IsStreamFuture[T any](future Future[T]) bool {
+	if future == nil {
+		return false
+	}
+	stream := future.(*futureImpl[T]).stream
+	return stream
+}
+
 func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, buf int, stream bool) *futureImpl[R] {
 	if buf < 1 {
 		buf = 1
