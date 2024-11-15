@@ -35,10 +35,10 @@ func IsClosed(err error) bool {
 type Promise[R any] interface {
 	// Complete
 	// 完成
-	Complete(result R, err error)
+	Complete(r R, err error)
 	// Succeed
 	// 成功完成
-	Succeed(result R)
+	Succeed(r R)
 	// Fail
 	// 错误完成
 	Fail(cause error)
