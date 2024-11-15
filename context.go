@@ -2,6 +2,7 @@ package rxp
 
 import (
 	"context"
+	"errors"
 )
 
 type contextKey struct{}
@@ -17,12 +18,26 @@ func With(ctx context.Context, exec Executors) context.Context {
 //
 // 注意，必须先 With ，否则会 panic 。
 func From(ctx context.Context) Executors {
-	exec, ok := ctx.Value(contextKey{}).(Executors)
-	if ok && exec != nil {
-		return exec
+	execs, ok := TryFrom(ctx)
+	if !ok {
+		panic("rxp: there is no executors in context")
+		return nil
 	}
-	panic("rxp: there is no executors in context")
-	return nil
+	return execs
+}
+
+// TryFrom
+// 尝试从 context.Context 获取 Executors
+func TryFrom(ctx context.Context) (Executors, bool) {
+	value := ctx.Value(contextKey{})
+	if value == nil {
+		return nil, false
+	}
+	exec, ok := value.(Executors)
+	if ok && exec != nil {
+		return exec, true
+	}
+	return nil, false
 }
 
 // TryExecute
@@ -33,7 +48,10 @@ func TryExecute(ctx context.Context, task Task) bool {
 	if task == nil {
 		return false
 	}
-	exec := From(ctx)
+	exec, ok := TryFrom(ctx)
+	if !ok {
+		return false
+	}
 	return exec.TryExecute(ctx, task)
 }
 
@@ -45,7 +63,10 @@ func Execute(ctx context.Context, task Task) (err error) {
 	if task == nil {
 		return
 	}
-	exec := From(ctx)
+	exec, ok := TryFrom(ctx)
+	if !ok {
+		return errors.New("rxp: there is no executors in context")
+	}
 	err = exec.Execute(ctx, task)
 	return
 }
