@@ -3,7 +3,6 @@ package async
 import (
 	"context"
 	"github.com/brickingsoft/rxp"
-	"github.com/brickingsoft/rxp/pkg/rate/spin"
 	"sync"
 	"time"
 )
@@ -40,7 +39,7 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, buf int,
 		futureCtxCancel: nil,
 		stream:          stream,
 		closed:          false,
-		locker:          spin.New(),
+		locker:          new(sync.Mutex),
 		rch:             make(chan result[R], buf),
 		submitter:       submitter,
 	}
@@ -123,11 +122,14 @@ func (f *futureImpl[R]) handle() {
 }
 
 func (f *futureImpl[R]) clean() {
+	f.locker.Lock()
+	f.closed = true
 	f.futureCtx = nil
 	f.futureCtxCancel = nil
 	f.rch = nil
 	f.submitter = nil
 	f.handler = nil
+	f.locker.Unlock()
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
