@@ -45,6 +45,9 @@ type Executors interface {
 	//
 	// 当 context.Context 有错误或者 Executors.Close、Executors.CloseGracefully，则返回错误。
 	Execute(ctx context.Context, task Task) (err error)
+	// UnlimitedExecute
+	// 执行一个不受限型任务。它不受最大协程数限制，但会消耗协程数，即 TryExecute 可能会得不到协程而失败。
+	UnlimitedExecute(task Task) (err error)
 	// Goroutines
 	// 当前 goroutine 数量
 	Goroutines() (n int64)
@@ -105,7 +108,7 @@ func New(options ...Option) Executors {
 		maxGoroutines:                  int64(opts.MaxGoroutines),
 		maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
 		locker:                         spin.New(),
-		running:                        atomic.Bool{},
+		running:                        new(atomic.Bool),
 		ready:                          nil,
 		submitters:                     sync.Pool{},
 		tasks:                          new(atomic.Int64),
@@ -122,7 +125,7 @@ type executors struct {
 	maxGoroutines                  int64
 	maxReadyGoroutinesIdleDuration time.Duration
 	locker                         sync.Locker
-	running                        atomic.Bool
+	running                        *atomic.Bool
 	ready                          []*submitterImpl
 	submitters                     sync.Pool
 	tasks                          *atomic.Int64
@@ -154,7 +157,12 @@ func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
 }
 
 func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
-	if task == nil || !exec.running.Load() {
+	if task == nil {
+		err = errors.New("rxp: task is nil")
+		return
+	}
+	if !exec.running.Load() {
+		err = ErrClosed
 		return
 	}
 	times := 10
@@ -178,6 +186,25 @@ func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
 		}
 	}
 	return
+}
+
+func (exec *executors) UnlimitedExecute(task Task) (err error) {
+	if task == nil {
+		err = errors.New("rxp: task is nil")
+		return
+	}
+	if !exec.running.Load() {
+		err = ErrClosed
+		return
+	}
+
+	exec.goroutines.Incr()
+	go func(task Task, exec *executors) {
+		task()
+		exec.goroutines.Decr()
+	}(task, exec)
+
+	return err
 }
 
 func (exec *executors) Goroutines() (n int64) {
@@ -240,8 +267,10 @@ func (exec *executors) start() {
 	exec.stopCh = make(chan struct{})
 	exec.submitters.New = func() interface{} {
 		return &submitterImpl{
-			ch:    make(chan Task, 1),
-			tasks: exec.tasks,
+			lastUseTime: time.Time{},
+			ch:          make(chan Task, 1),
+			running:     exec.running,
+			tasks:       exec.tasks,
 		}
 	}
 	go func(exec *executors) {
@@ -268,9 +297,6 @@ func (exec *executors) start() {
 }
 
 func (exec *executors) clean(scratch *[]*submitterImpl) {
-	if !exec.running.Load() {
-		return
-	}
 	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 	exec.locker.Lock()
