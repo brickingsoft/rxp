@@ -35,9 +35,9 @@ type Options struct {
 	CloseTimeout time.Duration
 }
 
-// MinGOMAXPROCS
+// WithMinGOMAXPROCS
 // 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。
-func MinGOMAXPROCS(n int) Option {
+func WithMinGOMAXPROCS(n int) Option {
 	return func(o *Options) error {
 		if n > 2 {
 			o.MaxprocsOptions.MinGOMAXPROCS = n
@@ -46,9 +46,9 @@ func MinGOMAXPROCS(n int) Option {
 	}
 }
 
-// Procs
+// WithProcs
 // 设置最大 GOMAXPROCS 构建函数。
-func Procs(fn maxprocs.ProcsFunc) Option {
+func WithProcs(fn maxprocs.ProcsFunc) Option {
 	return func(o *Options) error {
 		if fn == nil {
 			return fmt.Errorf("rxp: procs function cannot be nil")
@@ -58,9 +58,9 @@ func Procs(fn maxprocs.ProcsFunc) Option {
 	}
 }
 
-// RoundQuotaFunc
+// WithRoundQuotaFunc
 // 设置整数配额函数
-func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
+func WithRoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 	return func(o *Options) error {
 		if fn == nil {
 			return fmt.Errorf("rxp: round quota function cannot be nil")
@@ -70,9 +70,9 @@ func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 	}
 }
 
-// MaxGoroutines
+// WithMaxGoroutines
 // 设置最大协程数
-func MaxGoroutines(n int) Option {
+func WithMaxGoroutines(n int) Option {
 	return func(o *Options) error {
 		if n < 1 {
 			n = defaultMaxGoroutines
@@ -82,9 +82,9 @@ func MaxGoroutines(n int) Option {
 	}
 }
 
-// MaxReadyGoroutinesIdleDuration
+// WithMaxReadyGoroutinesIdleDuration
 // 设置准备中协程最大闲置时长
-func MaxReadyGoroutinesIdleDuration(d time.Duration) Option {
+func WithMaxReadyGoroutinesIdleDuration(d time.Duration) Option {
 	return func(o *Options) error {
 		if d < 1 {
 			d = defaultMaxReadyGoroutinesIdleDuration
