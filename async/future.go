@@ -137,8 +137,10 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	f.handler = handler
 	if ok := f.submitter.Submit(f.handle); !ok {
 		handler(f.ctx, *(new(R)), rxp.ErrClosed)
-		f.closed = true
-		close(f.rch)
+		if !f.closed {
+			f.closed = true
+			close(f.rch)
+		}
 	}
 	f.locker.Unlock()
 }
@@ -161,8 +163,10 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 			cause: rxp.ErrClosed,
 		}
 		close(ch)
-		f.closed = true
-		close(f.rch)
+		if !f.closed {
+			f.closed = true
+			close(f.rch)
+		}
 	}
 	f.locker.Unlock()
 
