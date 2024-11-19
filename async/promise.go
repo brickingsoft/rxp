@@ -12,26 +12,47 @@ const (
 	ns500 = 500 * time.Nanosecond
 )
 
+var (
+	ResultTypeUnmatched = errors.New("async: result type unmatched")
+	EOF                 = errors.New("async: end of future")
+	DeadlineExceeded    = errors.Join(errors.New("async: deadline exceeded"), context.DeadlineExceeded)
+	UnexpectedEOF       = errors.New("async: unexpected EOF")
+)
+
+// IsEOF
+// 是否为 EOF 错误
+func IsEOF(err error) bool {
+	return errors.Is(err, EOF)
+}
+
+// IsUnexpectedEOF
+// 是否为 UnexpectedEOF 错误
+func IsUnexpectedEOF(err error) bool {
+	return errors.Is(err, UnexpectedEOF)
+}
+
 // IsCanceled
 // 是否为 context.Canceled 错误
 func IsCanceled(err error) bool {
 	return errors.Is(err, context.Canceled)
 }
 
-// IsTimeout
-// 是否为 context.DeadlineExceeded 错误
-func IsTimeout(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded)
+// IsDeadlineExceeded
+// 是否为 DeadlineExceeded 错误
+func IsDeadlineExceeded(err error) bool {
+	return errors.Is(err, DeadlineExceeded)
 }
 
-// IsClosed
-// 是否为 rxp.ErrClosed 错误
-func IsClosed(err error) bool {
-	return errors.Is(err, rxp.ErrClosed)
+// IsResultTypeUnmatched
+// 是否为 ResultTypeUnmatched 错误
+func IsResultTypeUnmatched(err error) bool {
+	return errors.Is(err, ResultTypeUnmatched)
 }
 
 // Promise
 // 许诺一个未来。
+//
+// 注意：如果许诺了，则必须调用 Promise.Future 及 Future.OnComplete，否则协程会泄漏。
 type Promise[R any] interface {
 	// Complete
 	// 完成
@@ -50,7 +71,9 @@ type Promise[R any] interface {
 	// 当超时后，未来会是一个 context.DeadlineExceeded 错误。
 	SetDeadline(t time.Time)
 	// Future
-	// 返回未来
+	// 未来。
+	//
+	// 注意：必须调用 Future.OnComplete，否则协程会泄漏。
 	Future() (future Future[R])
 }
 
@@ -93,5 +116,5 @@ func MustPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 }
 
 func newPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter) Promise[R] {
-	return newFuture[R](ctx, submitter, 1, false)
+	return newFuture[R](ctx, submitter, false)
 }
