@@ -48,6 +48,9 @@ type Executors interface {
 	// UnlimitedExecute
 	// 执行一个不受限型任务。它不受最大协程数限制，但会消耗协程数，即 TryExecute 可能会得不到协程而失败。
 	UnlimitedExecute(ctx context.Context, task Task) (err error)
+	// DirectExecute
+	// 直接执行。它受最大协程数限制，但不会请求任务提交器，而是直接起一个协程。
+	DirectExecute(ctx context.Context, task Task) (err error)
 	// Goroutines
 	// 当前 goroutine 数量
 	Goroutines() (n int64)
@@ -201,6 +204,23 @@ func (exec *executors) UnlimitedExecute(ctx context.Context, task Task) (err err
 		exec.goroutines.Decr()
 	}(task, exec)
 
+	return err
+}
+
+func (exec *executors) DirectExecute(ctx context.Context, task Task) (err error) {
+	if task == nil {
+		err = errors.New("rxp: task is nil")
+		return
+	}
+	exec.goroutines.Incr()
+	if err = exec.goroutines.WaitDownTo(ctx, exec.maxGoroutines); err != nil {
+		exec.goroutines.Decr()
+		return err
+	}
+	go func(task Task, exec *executors) {
+		task()
+		exec.goroutines.Decr()
+	}(task, exec)
 	return err
 }
 

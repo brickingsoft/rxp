@@ -59,7 +59,7 @@ func BenchmarkExecutors_Execute(b *testing.B) {
 // goarch: amd64
 // pkg: github.com/brickingsoft/rxp
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkExecutors_Execute
+// BenchmarkExecutors_TryExecute
 // BenchmarkExecutors_TryExecute-20    	 2680070	       426.4 ns/op	         0 failed	       0 B/op	       0 allocs/op
 func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportAllocs()
@@ -87,7 +87,7 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 // goarch: amd64
 // pkg: github.com/brickingsoft/rxp
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkExecutors_Execute
+// BenchmarkExecutors_UnlimitedExecute
 // BenchmarkExecutors_UnlimitedExecute-20    	 6444103	       186.6 ns/op	         0 failed	      34 B/op	       1 allocs/op
 func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
 	b.ReportAllocs()
@@ -98,6 +98,34 @@ func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			err := executors.UnlimitedExecute(ctx, RandTask)
+			if err != nil {
+				failed.Add(1)
+			}
+		}
+	})
+	err := executors.CloseGracefully()
+	if err != nil {
+		b.Error(err)
+	}
+	b.ReportMetric(float64(failed.Load()), "failed")
+}
+
+// BenchmarkExecutors_UnlimitedExecute
+// goos: windows
+// goarch: amd64
+// pkg: github.com/brickingsoft/rxp
+// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
+// BenchmarkExecutors_DirectExecute
+// BenchmarkExecutors_DirectExecute-20    	 6159405	       192.1 ns/op	         0 failed	      38 B/op	       1 allocs/op
+func BenchmarkExecutors_DirectExecute(b *testing.B) {
+	b.ReportAllocs()
+	executors := rxp.New()
+	ctx := context.Background()
+	failed := new(atomic.Int64)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			err := executors.DirectExecute(ctx, RandTask)
 			if err != nil {
 				failed.Add(1)
 			}
