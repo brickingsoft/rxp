@@ -136,6 +136,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	f.locker.Lock()
 	f.handler = handler
 	if ok := f.submitter.Submit(f.handle); !ok {
+		f.handler = nil
 		handler(f.ctx, *(new(R)), rxp.ErrClosed)
 		if !f.closed {
 			f.closed = true
