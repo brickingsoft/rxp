@@ -24,24 +24,32 @@ type Options struct {
 
 type Option func(*Options)
 
+// WithStream
+// 流式许诺
 func WithStream() Option {
 	return func(o *Options) {
 		o.Stream = true
 	}
 }
 
+// WithUnlimitedMode
+// 无限制模式
 func WithUnlimitedMode() Option {
 	return func(o *Options) {
 		o.Mode = Unlimited
 	}
 }
 
+// WithDirectMode
+// 直接模式
 func WithDirectMode() Option {
 	return func(o *Options) {
 		o.Mode = Direct
 	}
 }
 
+// WithWaitTimeout
+// 在有限时间内等待一个可用的
 func WithWaitTimeout(timeout time.Duration) Option {
 	return func(o *Options) {
 		if timeout > -1 {
@@ -50,12 +58,16 @@ func WithWaitTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithWait
+// 等待一个可用的
 func WithWait() Option {
 	return func(o *Options) {
 		o.WaitTimeout = 0
 	}
 }
 
+// Make
+// 构建一个许诺
 func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
 	opt := Options{
 		Stream:      false,
