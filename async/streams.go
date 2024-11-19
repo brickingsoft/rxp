@@ -11,7 +11,7 @@ import (
 
 // JoinStreamFutures
 // 把多个流事未来合并成一个流式未来。
-// 当所有未来都结束了才会通知一个 context.Canceled 作为整体结束。
+// 当所有未来都结束了才会通知一个 EOF 作为整体结束。
 // 成员结束包含结束、取消、超时，但这些不会通知到下游。
 func JoinStreamFutures[R any](members []Future[R]) Future[R] {
 	membersLen := len(members)
@@ -44,10 +44,10 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 	for _, m := range s.members {
 		m.OnComplete(func(ctx context.Context, entry R, cause error) {
 			if cause != nil {
-				if IsCanceled(cause) || IsClosed(cause) || IsTimeout(cause) {
+				if IsCanceled(cause) || IsEOF(cause) || IsUnexpectedEOF(cause) {
 					s.alive.Add(-1)
 					if s.alive.Load() == 0 {
-						handler(ctx, entry, context.Canceled)
+						handler(ctx, entry, EOF)
 						return
 					}
 					return
@@ -61,8 +61,8 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 // StreamPromises
 // 并行流。
 //
-// 当所有未来都结束了才会通知一个 context.Canceled 作为整体结束。
-func StreamPromises[R any](ctx context.Context, size int, buf int) (v Promise[R], err error) {
+// 当所有未来都结束了才会通知一个 EOF 作为整体结束。
+func StreamPromises[R any](ctx context.Context, size int) (v Promise[R], err error) {
 	if size < 1 {
 		err = errors.New("async: stream promises size < 1")
 		return
@@ -76,7 +76,7 @@ func StreamPromises[R any](ctx context.Context, size int, buf int) (v Promise[R]
 		locker:   spin.New(),
 	}
 	for i := 0; i < size; i++ {
-		s, sErr := MustStreamPromise[R](ctx, buf)
+		s, sErr := MustStreamPromise[R](ctx)
 		if sErr != nil {
 			err = sErr
 			return
