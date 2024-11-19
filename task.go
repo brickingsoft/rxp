@@ -1,7 +1,6 @@
 package rxp
 
 import (
-	"sync/atomic"
 	"time"
 )
 
@@ -15,25 +14,35 @@ type TaskSubmitter interface {
 	// Submit
 	// 提交一个任务
 	Submit(task Task) (ok bool)
+	// Cancel
+	// 取消提交任务，未调用 Submit 则需要 Cancel 掉。
+	Cancel()
 }
 
 type submitterImpl struct {
 	lastUseTime time.Time
 	ch          chan Task
-	running     *atomic.Bool
-	tasks       *atomic.Int64
+	exec        *executors
 }
 
 func (submitter *submitterImpl) Submit(task Task) (ok bool) {
 	if task == nil {
-		submitter.ch <- task
-		ok = true
 		return
 	}
-	if submitter.running.Load() {
+	if submitter.exec.running.Load() {
 		submitter.ch <- task
-		submitter.tasks.Add(1)
 		ok = true
+	} else {
+		submitter.Cancel()
 	}
 	return
+}
+
+func (submitter *submitterImpl) Cancel() {
+	submitter.exec.release(submitter)
+	return
+}
+
+func (submitter *submitterImpl) stop() {
+	submitter.ch <- nil
 }
