@@ -22,7 +22,6 @@ func TestExecutors_TryExecute(t *testing.T) {
 		}
 	}(executors)
 	executors.TryExecute(ctx, RandTask)
-	t.Log("tasks", executors.Tasks())
 	t.Log("goroutines", executors.Goroutines())
 }
 
@@ -72,6 +71,34 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 		for pb.Next() {
 			ok := executors.TryExecute(ctx, RandTask)
 			if !ok {
+				failed.Add(1)
+			}
+		}
+	})
+	err := executors.CloseGracefully()
+	if err != nil {
+		b.Error(err)
+	}
+	b.ReportMetric(float64(failed.Load()), "failed")
+}
+
+// BenchmarkExecutors_UnlimitedExecute
+// goos: windows
+// goarch: amd64
+// pkg: github.com/brickingsoft/rxp
+// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
+// BenchmarkExecutors_Execute
+// BenchmarkExecutors_UnlimitedExecute-20    	 6444103	       186.6 ns/op	         0 failed	      34 B/op	       1 allocs/op
+func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
+	b.ReportAllocs()
+	executors := rxp.New()
+	ctx := context.Background()
+	failed := new(atomic.Int64)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			err := executors.UnlimitedExecute(ctx, RandTask)
+			if err != nil {
 				failed.Add(1)
 			}
 		}
