@@ -17,11 +17,11 @@ import (
 // 关于许诺值，如果它实现了 io.Closer ，则当 Promise.Cancel 后且它未没处理，那么会自动 转化为 io.Closer 进行关闭。
 //
 // 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
-func TryStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], ok bool) {
+func TryStreamPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
 	exec := rxp.From(ctx)
 	submitter, has := exec.TryGetTaskSubmitter()
 	if has {
-		promise = newStreamPromise[T](ctx, submitter, buf)
+		promise = newStreamPromise[T](ctx, submitter)
 		ok = true
 	}
 	return
@@ -37,11 +37,11 @@ func TryStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], 
 // 关于许诺值，如果它实现了 io.Closer ，则当 Promise.Cancel 后且它未没处理，那么会自动 转化为 io.Closer 进行关闭。
 //
 // 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
-func MustStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], err error) {
+func MustStreamPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	times := 10
 	ok := false
 	for {
-		promise, ok = TryStreamPromise[T](ctx, buf)
+		promise, ok = TryStreamPromise[T](ctx)
 		if ok {
 			break
 		}
@@ -58,16 +58,28 @@ func MustStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T],
 	return
 }
 
+// IsStreamFuture
+// 判断是否是流
+func IsStreamFuture[T any](future Future[T]) bool {
+	if future == nil {
+		return false
+	}
+	impl := future.(*futureImpl[T])
+	stream := impl.grc.stream
+	return stream
+}
+
 // IsStreamPromise
 // 判断是否是流
 func IsStreamPromise[T any](promise Promise[T]) bool {
 	if promise == nil {
 		return false
 	}
-	stream := promise.(*futureImpl[T]).stream
+	impl := promise.(*futureImpl[T])
+	stream := impl.grc.stream
 	return stream
 }
 
-func newStreamPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter, buf int) Promise[R] {
-	return newFuture[R](ctx, submitter, buf, true)
+func newStreamPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter) Promise[R] {
+	return newFuture[R](ctx, submitter, true)
 }
