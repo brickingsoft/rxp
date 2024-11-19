@@ -1,6 +1,9 @@
 package async
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // Awaitable
 // 同步等待器
@@ -10,18 +13,37 @@ type Awaitable[R any] interface {
 	Await() (r R, err error)
 }
 
-// Await
-// 同步等待未来结果
-//
-// 注意，非无限流许诺只有一个未来，而无限流许诺可能有多个未来。
-//
-// 对于无限流许诺，直到 err 不为空时才算结束。
-func Await[R any](future Future[R]) (r R, err error) {
-	awaitable, ok := future.(Awaitable[R])
+func AwaitableFuture[R any](future Future[R]) (af Awaitable[R]) {
+	ch := make(chan result[R], 1)
+	var handler ResultHandler[R] = func(ctx context.Context, r R, cause error) {
+		if errors.Is(cause, EOF) {
+			close(ch)
+			return
+		}
+		ch <- result[R]{
+			entry: r,
+			cause: cause,
+		}
+	}
+	future.OnComplete(handler)
+	af = &awaitableFuture[R]{
+		future: future,
+		ch:     ch,
+	}
+	return
+}
+
+type awaitableFuture[R any] struct {
+	future Future[R]
+	ch     chan result[R]
+}
+
+func (af *awaitableFuture[R]) Await() (r R, err error) {
+	ar, ok := <-af.ch
 	if !ok {
-		err = errors.New("async: future is not a Awaitable[R]")
+		err = EOF
 		return
 	}
-	r, err = awaitable.Await()
+	r, err = ar.entry, ar.cause
 	return
 }
