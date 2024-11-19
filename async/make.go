@@ -66,14 +66,39 @@ func WithWait() Option {
 	}
 }
 
-// Make
-// 构建一个许诺
-func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
+type optionsCtxKey struct{}
+
+// WithOptions
+// 把 Make 的 Options 绑定到 context.Context。常用于设置上下文中的默认选项。
+func WithOptions(ctx context.Context, options ...Option) context.Context {
 	opt := Options{
 		Stream:      false,
 		Mode:        Normal,
 		WaitTimeout: -1,
 	}
+	for _, o := range options {
+		o(&opt)
+	}
+	return context.WithValue(ctx, optionsCtxKey{}, opt)
+}
+
+func getOptions(ctx context.Context) Options {
+	value := ctx.Value(optionsCtxKey{})
+	if value == nil {
+		return Options{
+			Stream:      false,
+			Mode:        Normal,
+			WaitTimeout: -1,
+		}
+	}
+	opt := value.(Options)
+	return opt
+}
+
+// Make
+// 构建一个许诺
+func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
+	opt := getOptions(ctx)
 	for _, o := range options {
 		o(&opt)
 	}
