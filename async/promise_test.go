@@ -91,18 +91,19 @@ func TestTryPromise_Cancel(t *testing.T) {
 		t.Errorf("try promise1 failed")
 		return
 	}
+	promise2, ok2 := async.TryPromise[int](ctx)
+	if !ok2 {
+		t.Errorf("try promise2 failed")
+		return
+	}
+	promise2.Future().OnComplete(func(ctx context.Context, result int, err error) {
+		t.Log("future2 entry:", result, err)
+	})
+
 	future1 := promise1.Future()
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future1 entry:", result, err)
-		promise2, ok2 := async.TryPromise[int](ctx)
-		if !ok2 {
-			t.Errorf("try promise2 failed")
-		}
 		promise2.Succeed(2)
-		future2 := promise2.Future()
-		future2.OnComplete(func(ctx context.Context, result int, err error) {
-			t.Log("future2 entry:", result, err)
-		})
 	})
 	promise1.Cancel()
 }
@@ -145,6 +146,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkTryPromise
 // BenchmarkTryPromise-20    	 2021223	       554.1 ns/op	         0 failed	     268 B/op	       5 allocs/op
+// BenchmarkTryPromise-20    	 1969204	       558.5 ns/op	         0 failed	     145 B/op	       4 allocs/op
 func BenchmarkTryPromise(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()
