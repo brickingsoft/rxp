@@ -2,8 +2,11 @@ package async
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"github.com/brickingsoft/rxp"
-	"sync"
+	"reflect"
+	"sync/atomic"
 	"time"
 )
 
@@ -13,239 +16,221 @@ type Future[R any] interface {
 	// OnComplete
 	// 注册一个结果处理器，它是异步非堵塞的。
 	// 除了 Promise.Fail 给到的错误外，还有可以有以下错误。
-	// context.Canceled 已取消
-	// context.DeadlineExceeded 已超时
-	// ErrFutureWasClosed 非无限流许诺的不正常关闭
+	// EOF 流许诺已 Promise.Cancel 而未来正常结束
+	// DeadlineExceeded 已超时
+	// UnexpectedEOF ctx错误引发非正常结束
 	OnComplete(handler ResultHandler[R])
 }
 
-// IsStreamFuture
-// 判断是否是流
-func IsStreamFuture[T any](future Future[T]) bool {
-	if future == nil {
-		return false
-	}
-	stream := future.(*futureImpl[T]).stream
-	return stream
-}
-
-func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, buf int, stream bool) *futureImpl[R] {
-	if buf < 1 {
-		buf = 1
-	}
+func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, stream bool) *futureImpl[R] {
+	grc := getGenericResultChan()
+	grc.stream = stream
 	return &futureImpl[R]{
-		ctx:             ctx,
-		futureCtx:       ctx,
-		futureCtxCancel: nil,
-		stream:          stream,
-		closed:          false,
-		locker:          new(sync.Mutex),
-		rch:             make(chan result[R], buf),
-		submitter:       submitter,
+		ctx:       ctx,
+		end:       new(atomic.Bool),
+		grc:       grc,
+		submitter: submitter,
+		handler:   nil,
 	}
 }
 
 type futureImpl[R any] struct {
-	ctx             context.Context
-	futureCtx       context.Context
-	futureCtxCancel context.CancelFunc
-	stream          bool
-	closed          bool
-	locker          sync.Locker
-	rch             chan result[R]
-	submitter       rxp.TaskSubmitter
-	handler         ResultHandler[R]
-}
-
-func (f *futureImpl[R]) closeRCH() {
-	f.locker.Lock()
-	if f.closed {
-		f.locker.Unlock()
-		return
-	}
-	f.closed = true
-	close(f.rch)
-	f.locker.Unlock()
-	return
+	ctx       context.Context
+	end       *atomic.Bool
+	grc       *genericResultChan
+	submitter rxp.TaskSubmitter
+	handler   ResultHandler[R]
 }
 
 func (f *futureImpl[R]) handle() {
-	futureCtx := f.futureCtx
-	rch := f.rch
+	grc := f.grc
 	stopped := false
 	isUnexpectedError := false
 	for {
 		select {
 		case <-f.ctx.Done():
-			f.handler(f.ctx, *(new(R)), f.ctx.Err())
+			f.end.Store(true)
+			ctxErr := f.ctx.Err()
+			if ctxErr != nil {
+				f.handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, ctxErr))
+			} else {
+				f.handler(f.ctx, *(new(R)), UnexpectedEOF)
+			}
 			stopped = true
 			isUnexpectedError = true
-			f.closeRCH()
+			grc.CloseByUnexpectedError()
 			break
-		case <-futureCtx.Done():
-			f.handler(f.ctx, *(new(R)), futureCtx.Err())
-			stopped = true
-			isUnexpectedError = true
-			f.closeRCH()
-			break
-		case ar, ok := <-rch:
-			if !ok {
-				f.handler(f.ctx, *(new(R)), context.Canceled)
+		case <-grc.timer.C:
+			f.handler(f.ctx, *(new(R)), DeadlineExceeded)
+			// stream future will not break when timeout
+			// call cancel to stop when need to cancel
+			if !grc.stream {
+				f.end.Store(true)
 				stopped = true
 				break
 			}
-			f.handler(f.ctx, ar.entry, ar.cause)
-			if !f.stream {
-				stopped = true
-			}
 			break
+		case entry := <-grc.entries:
+			switch e := entry.(type) {
+			case genericResultChanEntry:
+				value, typeOk := e.value.(R)
+				if !typeOk {
+					f.handler(f.ctx, *(new(R)), errors.Join(ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String())))
+					if !grc.stream {
+						stopped = true
+						break
+					}
+					break
+				}
+				f.handler(f.ctx, value, e.cause)
+				if !grc.stream {
+					f.end.Store(true)
+					stopped = true
+					break
+				}
+				break
+			case genericResultChanCancel:
+				f.handler(f.ctx, *(new(R)), EOF)
+				f.end.Store(true)
+				stopped = true
+				break
+			default:
+				f.handler(f.ctx, *(new(R)), errors.Join(ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String())))
+				if !grc.stream {
+					f.end.Store(true)
+					stopped = true
+				}
+				break
+			}
 		}
 		if stopped {
 			break
 		}
 	}
 	if isUnexpectedError {
+		grc.entries <- genericResultChanCancel{}
+		stopped = false
 		for {
-			ar, ok := <-rch
+			entry, ok := <-grc.entries
 			if !ok {
 				break
 			}
-			if ar.cause == nil {
-				tryCloseResultWhenUnexpectedlyErrorOccur(ar.entry)
+			switch entry.(type) {
+			case error:
+				break
+			case genericResultChanCancel:
+				stopped = true
+				break
+			default:
+				tryCloseResultWhenUnexpectedlyErrorOccur(entry)
+			}
+			if stopped {
+				break
 			}
 		}
-	}
-	if f.futureCtxCancel != nil {
-		f.futureCtxCancel()
 	}
 	f.clean()
 }
 
 func (f *futureImpl[R]) clean() {
-	f.locker.Lock()
-	f.closed = true
-	f.futureCtx = nil
-	f.futureCtxCancel = nil
-	f.rch = nil
+	grc := f.grc
+	putGenericResultChan(grc)
+	f.grc = nil
 	f.submitter = nil
 	f.handler = nil
-	f.locker.Unlock()
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
-	f.locker.Lock()
+	if f.handler != nil {
+		return
+	}
+
+	if f.end.Load() {
+		f.submitter.Cancel()
+		f.clean()
+		return
+	}
+
 	f.handler = handler
 	if ok := f.submitter.Submit(f.handle); !ok {
-		f.handler = nil
-		handler(f.ctx, *(new(R)), rxp.ErrClosed)
-		if !f.closed {
-			f.closed = true
-			close(f.rch)
-		}
-	}
-	f.locker.Unlock()
-}
-
-func (f *futureImpl[R]) Await() (v R, err error) {
-	ch := make(chan result[R], 1)
-	var handler ResultHandler[R] = func(ctx context.Context, r R, cause error) {
-		ch <- result[R]{
-			entry: r,
-			cause: cause,
-		}
-		close(ch)
+		f.submitter.Cancel()
+		f.clean()
+		handler(f.ctx, *(new(R)), context.Canceled)
 	}
 
-	f.locker.Lock()
-	f.handler = handler
-	if ok := f.submitter.Submit(f.handle); !ok {
-		ch <- result[R]{
-			entry: *(new(R)),
-			cause: rxp.ErrClosed,
-		}
-		close(ch)
-		if !f.closed {
-			f.closed = true
-			close(f.rch)
-		}
-	}
-	f.locker.Unlock()
-
-	ar := <-ch
-	v = ar.entry
-	err = ar.cause
 	return
 }
 
 func (f *futureImpl[R]) Complete(r R, err error) {
-	f.locker.Lock()
-	if f.closed {
+	if f.end.Load() {
 		tryCloseResultWhenUnexpectedlyErrorOccur(r)
-		f.locker.Unlock()
 		return
 	}
-	f.rch <- result[R]{
-		entry: r,
+	if f.grc.IsClosed() {
+		tryCloseResultWhenUnexpectedlyErrorOccur(r)
+		return
+	}
+
+	f.grc.Send(genericResultChanEntry{
+		value: r,
 		cause: err,
+	})
+	if !f.grc.stream {
+		f.grc.Close()
 	}
-	if !f.stream {
-		f.closed = true
-		close(f.rch)
-	}
-	f.locker.Unlock()
 	return
 }
 
 func (f *futureImpl[R]) Succeed(r R) {
-	f.locker.Lock()
-	if f.closed {
+	if f.end.Load() {
 		tryCloseResultWhenUnexpectedlyErrorOccur(r)
-		f.locker.Unlock()
 		return
 	}
-	f.rch <- result[R]{
-		entry: r,
+	if f.grc.IsClosed() {
+		tryCloseResultWhenUnexpectedlyErrorOccur(r)
+		return
+	}
+	f.grc.Send(genericResultChanEntry{
+		value: r,
 		cause: nil,
+	})
+	if !f.grc.stream {
+		f.grc.Close()
 	}
-	if !f.stream {
-		f.closed = true
-		close(f.rch)
-	}
-	f.locker.Unlock()
 	return
 }
 
 func (f *futureImpl[R]) Fail(cause error) {
-	f.locker.Lock()
-	if f.closed {
-		f.locker.Unlock()
+	if f.end.Load() {
 		return
 	}
-	f.rch <- result[R]{
+	if f.grc.IsClosed() {
+		return
+	}
+	f.grc.Send(genericResultChanEntry{
+		value: *(new(R)),
 		cause: cause,
+	})
+	if !f.grc.stream {
+		f.grc.Close()
 	}
-	if !f.stream {
-		f.closed = true
-		close(f.rch)
-	}
-	f.locker.Unlock()
 }
 
 func (f *futureImpl[R]) Cancel() {
-	if f.futureCtxCancel != nil {
-		f.futureCtxCancel()
+	if f.end.Load() {
+		return
 	}
-	f.closeRCH()
+	f.grc.Close()
 }
 
 func (f *futureImpl[R]) SetDeadline(deadline time.Time) {
-	f.locker.Lock()
-	if f.closed {
-		f.locker.Unlock()
+	if f.end.Load() {
 		return
 	}
-	f.futureCtx, f.futureCtxCancel = context.WithDeadline(f.futureCtx, deadline)
-	f.locker.Unlock()
+	if f.grc.IsClosed() {
+		return
+	}
+	f.grc.timer.Reset(time.Until(deadline))
 }
 
 func (f *futureImpl[R]) Future() (future Future[R]) {
