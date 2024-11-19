@@ -17,6 +17,7 @@ var (
 	EOF                 = errors.New("async: end of future")
 	DeadlineExceeded    = errors.Join(errors.New("async: deadline exceeded"), context.DeadlineExceeded)
 	UnexpectedEOF       = errors.New("async: unexpected EOF")
+	Busy                = errors.New("async: busy")
 )
 
 // IsEOF
@@ -47,6 +48,12 @@ func IsDeadlineExceeded(err error) bool {
 // 是否为 ResultTypeUnmatched 错误
 func IsResultTypeUnmatched(err error) bool {
 	return errors.Is(err, ResultTypeUnmatched)
+}
+
+// IsBusy
+// 是否为 Busy 错误
+func IsBusy(err error) bool {
+	return errors.Is(err, Busy)
 }
 
 // Promise

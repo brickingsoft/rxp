@@ -9,31 +9,31 @@ import (
 )
 
 type directSubmitter struct {
-	ctx  context.Context
-	exec rxp.Executors
+	ctx context.Context
 }
 
 func (submitter *directSubmitter) Submit(task rxp.Task) (ok bool) {
 	ctx := submitter.ctx
-	exec := submitter.exec
+	exec, has := rxp.TryFrom(ctx)
+	if !has {
+		submitter.ctx = nil
+		return
+	}
 	err := exec.DirectExecute(ctx, task)
 	submitter.ctx = nil
-	submitter.exec = nil
 	ok = err == nil
 	return
 }
 
 func (submitter *directSubmitter) Cancel() {
 	submitter.ctx = nil
-	submitter.exec = nil
 	return
 }
 
 // DirectPromise
 // 直启协程的许诺
 func DirectPromise[R any](ctx context.Context) (promise Promise[R]) {
-	exec := rxp.From(ctx)
-	submitter := &directSubmitter{ctx: ctx, exec: exec}
+	submitter := &directSubmitter{ctx: ctx}
 	promise = newPromise[R](ctx, submitter)
 	return
 }
@@ -41,8 +41,7 @@ func DirectPromise[R any](ctx context.Context) (promise Promise[R]) {
 // DirectStreamPromise
 // 直启协程的流式许诺
 func DirectStreamPromise[R any](ctx context.Context) (promise Promise[R]) {
-	exec := rxp.From(ctx)
-	submitter := &directSubmitter{ctx: ctx, exec: exec}
+	submitter := &directSubmitter{ctx: ctx}
 	promise = newStreamPromise[R](ctx, submitter)
 	return
 }

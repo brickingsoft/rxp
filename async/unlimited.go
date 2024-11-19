@@ -9,31 +9,31 @@ import (
 )
 
 type unlimitedSubmitter struct {
-	ctx  context.Context
-	exec rxp.Executors
+	ctx context.Context
 }
 
 func (submitter *unlimitedSubmitter) Submit(task rxp.Task) (ok bool) {
 	ctx := submitter.ctx
-	exec := submitter.exec
+	exec, has := rxp.TryFrom(ctx)
+	if !has {
+		submitter.ctx = nil
+		return
+	}
 	err := exec.UnlimitedExecute(ctx, task)
 	submitter.ctx = nil
-	submitter.exec = nil
 	ok = err == nil
 	return
 }
 
 func (submitter *unlimitedSubmitter) Cancel() {
 	submitter.ctx = nil
-	submitter.exec = nil
 	return
 }
 
 // UnlimitedPromise
 // 不受 rxp.Executors 最大协程限制的许诺
 func UnlimitedPromise[R any](ctx context.Context) (promise Promise[R]) {
-	exec := rxp.From(ctx)
-	submitter := &unlimitedSubmitter{ctx: ctx, exec: exec}
+	submitter := &unlimitedSubmitter{ctx: ctx}
 	promise = newPromise[R](ctx, submitter)
 	return
 }
@@ -41,8 +41,7 @@ func UnlimitedPromise[R any](ctx context.Context) (promise Promise[R]) {
 // UnlimitedStreamPromise
 // 不受 rxp.Executors 最大协程限制的流式许诺
 func UnlimitedStreamPromise[R any](ctx context.Context) (promise Promise[R]) {
-	exec := rxp.From(ctx)
-	submitter := &unlimitedSubmitter{ctx: ctx, exec: exec}
+	submitter := &unlimitedSubmitter{ctx: ctx}
 	promise = newStreamPromise[R](ctx, submitter)
 	return
 }
