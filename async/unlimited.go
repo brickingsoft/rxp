@@ -42,7 +42,7 @@ func UnlimitedPromise[R any](ctx context.Context) (promise Promise[R]) {
 // 不受 rxp.Executors 最大协程限制的流式许诺
 func UnlimitedStreamPromise[R any](ctx context.Context) (promise Promise[R]) {
 	exec := rxp.From(ctx)
-	submitter := &unlimitedSubmitter{exec: exec}
+	submitter := &unlimitedSubmitter{ctx: ctx, exec: exec}
 	promise = newStreamPromise[R](ctx, submitter)
 	return
 }
