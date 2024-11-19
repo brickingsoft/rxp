@@ -3,6 +3,7 @@ package async_test
 import (
 	"context"
 	"github.com/brickingsoft/rxp/async"
+	"sync"
 	"testing"
 )
 
@@ -15,6 +16,8 @@ func TestComposite(t *testing.T) {
 		}
 	}()
 
+	wg := new(sync.WaitGroup)
+
 	promises := make([]async.Promise[int], 0, 1)
 	for i := 0; i < 10; i++ {
 		promise, ok := async.TryPromise[int](ctx)
@@ -26,6 +29,8 @@ func TestComposite(t *testing.T) {
 	}
 
 	composite := async.Composite[[]async.Result[int]](ctx, promises)
+
+	wg.Add(1)
 	composite.OnComplete(func(ctx context.Context, results []async.Result[int], err error) {
 		nn := make([]int, 0, 1)
 		ee := make([]error, 0, 1)
@@ -37,10 +42,13 @@ func TestComposite(t *testing.T) {
 			}
 		}
 		t.Log("composite future:", nn, ee)
+		wg.Done()
 	})
 
 	for i, promise := range promises {
 		promise.Succeed(i)
 	}
+
+	wg.Wait()
 
 }
