@@ -71,28 +71,27 @@ func (f *futureImpl[R]) handle() {
 			}
 			break
 		case entry := <-grc.entries:
-			switch e := entry.(type) {
-			case genericResultChanEntry:
-				value, typeOk := e.value.(R)
-				if !typeOk {
-					f.handler(f.ctx, *(new(R)), errors.Join(ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String())))
-					if !grc.stream {
-						stopped = true
-						break
-					}
-					break
+			if entry.cause != nil {
+				f.handler(f.ctx, *(new(R)), entry.cause)
+				if !grc.stream {
+					f.end.Store(true)
+					stopped = true
 				}
-				f.handler(f.ctx, value, e.cause)
+				break
+			}
+			switch value := entry.value.(type) {
+			case genericResultChanCancel:
+				f.handler(f.ctx, *(new(R)), EOF)
+				f.end.Store(true)
+				stopped = true
+				break
+			case R:
+				f.handler(f.ctx, value, nil)
 				if !grc.stream {
 					f.end.Store(true)
 					stopped = true
 					break
 				}
-				break
-			case genericResultChanCancel:
-				f.handler(f.ctx, *(new(R)), EOF)
-				f.end.Store(true)
-				stopped = true
 				break
 			default:
 				f.handler(f.ctx, *(new(R)), errors.Join(ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String())))
@@ -108,21 +107,24 @@ func (f *futureImpl[R]) handle() {
 		}
 	}
 	if isUnexpectedError {
-		grc.entries <- genericResultChanCancel{}
+		grc.entries <- genericResultChanEntry{
+			value: genericResultChanCancel{},
+			cause: nil,
+		}
 		stopped = false
 		for {
 			entry, ok := <-grc.entries
 			if !ok {
 				break
 			}
-			switch entry.(type) {
+			switch value := entry.value.(type) {
 			case error:
 				break
 			case genericResultChanCancel:
 				stopped = true
 				break
 			default:
-				tryCloseResultWhenUnexpectedlyErrorOccur(entry)
+				tryCloseResultWhenUnexpectedlyErrorOccur(value)
 			}
 			if stopped {
 				break

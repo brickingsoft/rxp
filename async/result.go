@@ -79,7 +79,7 @@ type genericResultChanEntry struct {
 }
 
 type genericResultChan struct {
-	entries chan any
+	entries chan genericResultChanEntry
 	timer   *time.Timer
 	stream  bool
 	closed  bool
@@ -98,7 +98,10 @@ func (grc *genericResultChan) Close() {
 		grc.lock.Unlock()
 		return
 	}
-	grc.entries <- genericResultChanCancel{}
+	grc.entries <- genericResultChanEntry{
+		value: genericResultChanCancel{},
+		cause: nil,
+	}
 	grc.closed = true
 	grc.lock.Unlock()
 }
@@ -144,7 +147,7 @@ var (
 	genericResultChanPool         = sync.Pool{
 		New: func() interface{} {
 			grc := &genericResultChan{
-				entries: make(chan any, genericResultChanEntryBuffer),
+				entries: make(chan genericResultChanEntry, genericResultChanEntryBuffer),
 				timer:   time.NewTimer(genericResultChanTimerTimeout),
 				stream:  false,
 				closed:  false,
