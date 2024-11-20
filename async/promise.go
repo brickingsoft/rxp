@@ -13,11 +13,13 @@ const (
 )
 
 var (
-	ResultTypeUnmatched = errors.New("async: result type unmatched")
-	EOF                 = errors.New("async: end of future")
-	DeadlineExceeded    = errors.Join(errors.New("async: deadline exceeded"), context.DeadlineExceeded)
-	UnexpectedEOF       = errors.New("async: unexpected EOF")
-	Busy                = errors.New("async: busy")
+	ResultTypeUnmatched     = errors.New("async: result type unmatched")
+	EOF                     = errors.New("async: end of future")
+	DeadlineExceeded        = errors.Join(errors.New("async: deadline exceeded"), context.DeadlineExceeded)
+	UnexpectedEOF           = errors.New("async: unexpected EOF")
+	Busy                    = errors.New("async: busy")
+	UnexpectedContextFailed = errors.New("async: unexpected context failed")
+	ExecutorsClosed         = errors.New("async: executors closed")
 )
 
 // IsEOF
@@ -30,6 +32,18 @@ func IsEOF(err error) bool {
 // 是否为 UnexpectedEOF 错误
 func IsUnexpectedEOF(err error) bool {
 	return errors.Is(err, UnexpectedEOF)
+}
+
+// IsExecutorsClosed
+// 是否为 ExecutorsClosed 错误
+func IsExecutorsClosed(err error) bool {
+	return errors.Is(err, ExecutorsClosed)
+}
+
+// IsUnexpectedContextFailed
+// 是否为 UnexpectedContextFailed 错误
+func IsUnexpectedContextFailed(err error) bool {
+	return errors.Is(err, UnexpectedContextFailed)
 }
 
 // IsCanceled

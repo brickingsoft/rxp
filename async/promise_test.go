@@ -145,8 +145,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkTryPromise
-// BenchmarkTryPromise-20    	 2021223	       554.1 ns/op	         0 failed	     268 B/op	       5 allocs/op
-// BenchmarkTryPromise-20    	 1969204	       558.5 ns/op	         0 failed	     145 B/op	       4 allocs/op
+// BenchmarkTryPromise-20    	 1969204	       558.5 ns/op	         0 failed	     110 B/op	       3 allocs/op
 func BenchmarkTryPromise(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()

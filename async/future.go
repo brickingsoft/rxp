@@ -50,11 +50,10 @@ func (f *futureImpl[R]) handle() {
 		select {
 		case <-f.ctx.Done():
 			f.end.Store(true)
-			ctxErr := f.ctx.Err()
-			if ctxErr != nil {
+			if ctxErr := f.ctx.Err(); ctxErr != nil {
 				f.handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, ctxErr))
 			} else {
-				f.handler(f.ctx, *(new(R)), UnexpectedEOF)
+				f.handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, UnexpectedContextFailed))
 			}
 			stopped = true
 			isUnexpectedError = true
@@ -137,6 +136,7 @@ func (f *futureImpl[R]) handle() {
 func (f *futureImpl[R]) clean() {
 	grc := f.grc
 	putGenericResultChan(grc)
+	f.ctx = nil
 	f.grc = nil
 	f.submitter = nil
 	f.handler = nil
@@ -157,14 +157,18 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	if ok := f.submitter.Submit(f.handle); !ok {
 		f.submitter.Cancel()
 		f.clean()
-		handler(f.ctx, *(new(R)), context.Canceled)
+		handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, ExecutorsClosed))
 	}
-
 	return
 }
 
 func (f *futureImpl[R]) Complete(r R, err error) {
-	if f.end.Load() {
+	defer func() {
+		_ = recover()
+		tryCloseResultWhenUnexpectedlyErrorOccur(r)
+		return
+	}()
+	if f.end.Load() || f.grc == nil {
 		tryCloseResultWhenUnexpectedlyErrorOccur(r)
 		return
 	}
@@ -184,49 +188,29 @@ func (f *futureImpl[R]) Complete(r R, err error) {
 }
 
 func (f *futureImpl[R]) Succeed(r R) {
-	if f.end.Load() {
-		tryCloseResultWhenUnexpectedlyErrorOccur(r)
-		return
-	}
-	if f.grc.IsClosed() {
-		tryCloseResultWhenUnexpectedlyErrorOccur(r)
-		return
-	}
-	f.grc.Send(genericResultChanEntry{
-		value: r,
-		cause: nil,
-	})
-	if !f.grc.stream {
-		f.grc.Close()
-	}
+	f.Complete(r, nil)
 	return
 }
 
 func (f *futureImpl[R]) Fail(cause error) {
-	if f.end.Load() {
-		return
-	}
-	if f.grc.IsClosed() {
-		return
-	}
-	f.grc.Send(genericResultChanEntry{
-		value: *(new(R)),
-		cause: cause,
-	})
-	if !f.grc.stream {
-		f.grc.Close()
-	}
+	f.Complete(*(new(R)), cause)
 }
 
 func (f *futureImpl[R]) Cancel() {
-	if f.end.Load() {
+	defer func() {
+		_ = recover()
+	}()
+	if f.end.Load() || f.grc == nil {
 		return
 	}
 	f.grc.Close()
 }
 
 func (f *futureImpl[R]) SetDeadline(deadline time.Time) {
-	if f.end.Load() {
+	defer func() {
+		_ = recover()
+	}()
+	if f.end.Load() || f.grc == nil {
 		return
 	}
 	if f.grc.IsClosed() {
