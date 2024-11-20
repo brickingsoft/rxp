@@ -134,7 +134,7 @@ type executors struct {
 }
 
 func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
-	if task == nil || !exec.running.Load() {
+	if task == nil || !exec.Available() {
 		return false
 	}
 	submitter, has := exec.TryGetTaskSubmitter()
@@ -230,7 +230,7 @@ func (exec *executors) Goroutines() (n int64) {
 }
 
 func (exec *executors) Available() bool {
-	return exec.running.Load() && exec.goroutines.Value() <= exec.maxGoroutines
+	return exec.running.Load() && exec.goroutines.Value() < exec.maxGoroutines
 }
 
 func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
@@ -240,7 +240,7 @@ func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
 	ready := exec.ready
 	n := len(ready) - 1
 	if n < 0 {
-		if exec.goroutines.Value() < exec.maxGoroutines {
+		if exec.Available() {
 			createExecutor = true
 		}
 	} else {
