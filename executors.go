@@ -46,7 +46,7 @@ type Executors interface {
 	// 当 context.Context 有错误或者 Executors.Close、Executors.CloseGracefully，则返回错误。
 	Execute(ctx context.Context, task Task) (err error)
 	// UnlimitedExecute
-	// 执行一个不受限型任务。它不受最大协程数限制，但会消耗协程数，即 TryExecute 可能会得不到协程而失败。
+	// 执行一个不受限型任务。它不受最大协程数限制，可以突破协程数上限，但会增加协程数导致其它方式会得不到协程而失败或等待可用。
 	UnlimitedExecute(ctx context.Context, task Task) (err error)
 	// DirectExecute
 	// 直接执行。它受最大协程数限制，但不会请求任务提交器，而是直接起一个协程。
