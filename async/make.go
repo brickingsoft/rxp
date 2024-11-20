@@ -32,6 +32,14 @@ func WithStream() Option {
 	}
 }
 
+// WithNormalMode
+// 普通模式
+func WithNormalMode() Option {
+	return func(o *Options) {
+		o.Mode = Normal
+	}
+}
+
 // WithUnlimitedMode
 // 无限制模式
 func WithUnlimitedMode() Option {
@@ -97,6 +105,18 @@ func getOptions(ctx context.Context) Options {
 
 // Make
 // 构建一个许诺
+//
+// 流式许诺：使用 WithStream 进行设置。
+//
+// 普通模式：使用 WithNormalMode 进行设置，这是默认的。
+//
+// 无限制模式：使用 WithUnlimitedMode 进行设置。
+//
+// 直接模式：使用 WithDirectMode 进行设置。
+//
+// 设置等待协程分配时长：使用 WithWaitTimeout 进行设置，只适用于普通模式。
+//
+// 无限等待协程分配：使用 WithWait 进行设置，只适用于普通模式。
 func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
 	opt := getOptions(ctx)
 	for _, o := range options {

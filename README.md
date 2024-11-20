@@ -27,7 +27,7 @@ err := executors.CloseGracefully()
 当关联好`context.Context`后，可以使用 `async` 来异步编程。
 ```go
 // 尝试构建一个许诺
-promise, ok := async.TryPromise[int](ctx)
+promise, ok := async.Make[int](ctx)
 if !ok {
     return
 }
@@ -45,7 +45,7 @@ future.OnComplete(func(ctx context.Context, entry int, cause error) {
 建议用法
 ```go
 func Foo[int](ctx context.Context) (future async.Future[int]) {
-	promise, ok := async.TryPromise[int](ctx)
+	promise, ok := async.Make[int](ctx)
 	if !ok {
 		future = async.FailedImmediately[int](ctx, errors.New("err"))
 		return
