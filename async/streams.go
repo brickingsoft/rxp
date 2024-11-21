@@ -68,6 +68,7 @@ func StreamPromises[R any](ctx context.Context, size int) (v Promise[R], err err
 		return
 	}
 	ss := &streamPromises[R]{
+		ctx:      ctx,
 		members:  make([]Promise[R], size),
 		index:    0,
 		size:     size,
@@ -90,6 +91,7 @@ func StreamPromises[R any](ctx context.Context, size int) (v Promise[R], err err
 }
 
 type streamPromises[R any] struct {
+	ctx      context.Context
 	members  []Promise[R]
 	index    int
 	size     int
@@ -158,6 +160,18 @@ func (ss *streamPromises[R]) Cancel() {
 }
 
 func (ss *streamPromises[R]) SetDeadline(_ time.Time) {
+	return
+}
+
+func (ss *streamPromises[R]) Deadline() (deadline time.Time, ok bool) {
+	deadline, ok = ss.ctx.Deadline()
+	return
+}
+
+func (ss *streamPromises[R]) UnexpectedEOF() (err error) {
+	if ctxErr := ss.ctx.Err(); ctxErr != nil {
+		err = errors.Join(UnexpectedEOF, ctxErr)
+	}
 	return
 }
 

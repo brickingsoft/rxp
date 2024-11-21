@@ -26,41 +26,57 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, stream b
 	grc := getGenericResultChan()
 	grc.stream = stream
 	return &futureImpl[R]{
-		ctx:       ctx,
-		end:       new(atomic.Bool),
-		grc:       grc,
-		submitter: submitter,
-		handler:   nil,
+		ctx:           ctx,
+		end:           new(atomic.Bool),
+		grc:           grc,
+		unexpectedErr: nil,
+		deadline:      time.Time{},
+		submitter:     submitter,
+		handler:       nil,
 	}
 }
 
 type futureImpl[R any] struct {
-	ctx       context.Context
-	end       *atomic.Bool
-	grc       *genericResultChan
-	submitter rxp.TaskSubmitter
-	handler   ResultHandler[R]
+	ctx           context.Context
+	end           *atomic.Bool
+	grc           *genericResultChan
+	unexpectedErr error
+	deadline      time.Time
+	submitter     rxp.TaskSubmitter
+	handler       ResultHandler[R]
 }
 
 func (f *futureImpl[R]) handle() {
+	ctx := f.ctx
 	grc := f.grc
+	timer := grc.timer
 	stopped := false
 	isUnexpectedError := false
 	for {
 		select {
-		case <-f.ctx.Done():
+		case <-ctx.Done():
 			f.end.Store(true)
-			if ctxErr := f.ctx.Err(); ctxErr != nil {
-				f.handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, ctxErr))
+			ctxErr := ctx.Err()
+			deadline, ok := ctx.Deadline()
+			if ok {
+				f.unexpectedErr = errors.Join(UnexpectedEOF, DeadlineExceeded, ctxErr)
+				f.deadline = deadline
 			} else {
-				f.handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, UnexpectedContextFailed))
+				if ctxErr != nil {
+					f.unexpectedErr = errors.Join(UnexpectedEOF, ctxErr)
+				} else {
+					f.unexpectedErr = errors.Join(UnexpectedEOF, UnexpectedContextFailed)
+				}
 			}
+			f.handler(f.ctx, *(new(R)), f.unexpectedErr)
 			stopped = true
 			isUnexpectedError = true
 			grc.CloseByUnexpectedError()
 			break
-		case <-grc.timer.C:
-			f.handler(f.ctx, *(new(R)), DeadlineExceeded)
+		case deadline := <-timer.C:
+			f.unexpectedErr = errors.Join(UnexpectedEOF, DeadlineExceeded)
+			f.deadline = deadline
+			f.handler(f.ctx, *(new(R)), f.unexpectedErr)
 			// stream future will not break when timeout
 			// call cancel to stop when need to cancel
 			if !grc.stream {
@@ -93,7 +109,8 @@ func (f *futureImpl[R]) handle() {
 				}
 				break
 			default:
-				f.handler(f.ctx, *(new(R)), errors.Join(ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String())))
+				err := errors.Join(UnexpectedEOF, ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String()))
+				f.handler(f.ctx, *(new(R)), err)
 				if !grc.stream {
 					f.end.Store(true)
 					stopped = true
@@ -159,6 +176,17 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		f.clean()
 		handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, ExecutorsClosed))
 	}
+	return
+}
+
+func (f *futureImpl[R]) UnexpectedEOF() (err error) {
+	err = f.unexpectedErr
+	return
+}
+
+func (f *futureImpl[R]) Deadline() (deadline time.Time, ok bool) {
+	deadline = f.deadline
+	ok = deadline.IsZero()
 	return
 }
 

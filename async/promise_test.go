@@ -136,6 +136,9 @@ func TestTryPromise_Timeout(t *testing.T) {
 		})
 	})
 	time.Sleep(4 * time.Second)
+	deadline, ok := promise1.Deadline()
+	t.Log("deadline:", deadline, ok)
+	t.Log("UnexpectedEOF:", promise1.UnexpectedEOF())
 	promise1.Succeed(1)
 }
 
@@ -145,7 +148,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkTryPromise
-// BenchmarkTryPromise-20    	 1969204	       558.5 ns/op	         0 failed	     110 B/op	       3 allocs/op
+// BenchmarkTryPromise-20    	 1969204	       592.8 ns/op	         0 failed	     143 B/op	       3 allocs/op
 func BenchmarkTryPromise(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()

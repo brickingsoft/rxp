@@ -91,6 +91,12 @@ type Promise[R any] interface {
 	// 设置死期。
 	// 当超时后，未来会是一个 context.DeadlineExceeded 错误。
 	SetDeadline(t time.Time)
+	// Deadline
+	// 是否超时
+	Deadline() (deadline time.Time, ok bool)
+	// UnexpectedEOF
+	// 是否存在非正常结束错误
+	UnexpectedEOF() (err error)
 	// Future
 	// 未来。
 	//
