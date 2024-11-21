@@ -12,13 +12,15 @@ import (
 
 // Future
 // 许诺的未来，注册一个异步非堵塞的结果处理器。
+//
+// 除了 Promise.Fail 给到的错误外，还有可以有以下错误。
+//
+// EOF 错误为 Promise.Cancel 引发，一般用于流。
+//
+// UnexpectedEOF 错误为 context.Context 错误时或自身超时，可以通过 IsDeadlineExceeded 来区分是否为超时，包含上下文超时。
 type Future[R any] interface {
 	// OnComplete
 	// 注册一个结果处理器，它是异步非堵塞的。
-	// 除了 Promise.Fail 给到的错误外，还有可以有以下错误。
-	// EOF 流许诺已 Promise.Cancel 而未来正常结束
-	// DeadlineExceeded 已超时
-	// UnexpectedEOF ctx错误引发非正常结束
 	OnComplete(handler ResultHandler[R])
 }
 

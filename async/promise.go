@@ -98,7 +98,7 @@ type Promise[R any] interface {
 	// 是否存在非正常结束错误
 	UnexpectedEOF() (err error)
 	// Future
-	// 未来。
+	// 未来
 	//
 	// 注意：必须调用 Future.OnComplete，否则协程会泄漏。
 	Future() (future Future[R])
