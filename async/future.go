@@ -188,7 +188,7 @@ func (f *futureImpl[R]) UnexpectedEOF() (err error) {
 
 func (f *futureImpl[R]) Deadline() (deadline time.Time, ok bool) {
 	deadline = f.deadline
-	ok = deadline.IsZero()
+	ok = !deadline.IsZero()
 	return
 }
 
