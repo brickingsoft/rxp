@@ -82,6 +82,25 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
 
+func BenchmarkTryExecute(b *testing.B) {
+	b.ReportAllocs()
+	executors := rxp.New()
+	ctx := context.Background()
+	failed := new(atomic.Int64)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ok := executors.TryExecute(ctx, RandTask)
+		if !ok {
+			failed.Add(1)
+		}
+	}
+	err := executors.CloseGracefully()
+	if err != nil {
+		b.Error(err)
+	}
+	b.ReportMetric(float64(failed.Load()), "failed")
+}
+
 // BenchmarkExecutors_UnlimitedExecute
 // goos: windows
 // goarch: amd64
