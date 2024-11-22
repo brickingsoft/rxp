@@ -33,13 +33,15 @@ func (submitter *submitterImpl) Submit(task Task) (ok bool) {
 		submitter.ch <- task
 		ok = true
 	} else {
-		submitter.Cancel()
+		submitter.stop()
 	}
 	return
 }
 
 func (submitter *submitterImpl) Cancel() {
-	submitter.exec.release(submitter)
+	if !submitter.exec.release(submitter) {
+		submitter.stop()
+	}
 	return
 }
 

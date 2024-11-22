@@ -345,6 +345,10 @@ func (exec *executors) clean(scratch *[]*submitterImpl) {
 	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 	exec.locker.Lock()
+	if !exec.running.Load() {
+		exec.locker.Unlock()
+		return
+	}
 	ready := exec.ready
 	n := len(ready)
 	l, r, mid := 0, n-1, 0
@@ -389,24 +393,22 @@ func (exec *executors) shutdown() {
 }
 
 func (exec *executors) release(submitter *submitterImpl) bool {
-	exec.locker.Lock()
 	if !exec.running.Load() {
-		submitter.stop()
-		exec.locker.Unlock()
 		return false
 	}
+	exec.locker.Lock()
 	submitter.lastUseTime = time.Now()
 	exec.ready = append(exec.ready, submitter)
 	exec.locker.Unlock()
 	return true
 }
 
-func (exec *executors) handle(wch *submitterImpl) {
+func (exec *executors) handle(submitter *submitterImpl) {
 	for {
-		if wch == nil {
+		if submitter == nil {
 			break
 		}
-		task, ok := <-wch.ch
+		task, ok := <-submitter.ch
 		if !ok {
 			break
 		}
@@ -414,7 +416,10 @@ func (exec *executors) handle(wch *submitterImpl) {
 			break
 		}
 		task()
-		if !exec.release(wch) {
+		if !exec.release(submitter) {
+			break
+		}
+		if !exec.running.Load() {
 			break
 		}
 	}
