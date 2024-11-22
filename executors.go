@@ -271,7 +271,6 @@ func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
 }
 
 func (exec *executors) Close() (err error) {
-	defer exec.undo()
 	if exec.stopTimeout > 0 {
 		err = exec.CloseGracefully()
 		if err != nil {
@@ -279,6 +278,7 @@ func (exec *executors) Close() (err error) {
 		}
 		return
 	}
+	defer exec.undo()
 	exec.running.Store(false)
 	exec.shutdown()
 	return
