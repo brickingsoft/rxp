@@ -29,7 +29,7 @@ func Composite[R []Result[E], E any](ctx context.Context, promises []Promise[E])
 		members[i] = member.Future()
 	}
 
-	promise, promiseErr := MustPromise[R](ctx)
+	promise, promiseErr := Make[R](ctx, WithWait())
 	if promiseErr != nil {
 		future = FailedImmediately[R](ctx, promiseErr)
 		return

@@ -62,11 +62,12 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 // 并行流。
 //
 // 当所有未来都结束了才会通知一个 EOF 作为整体结束。
-func StreamPromises[R any](ctx context.Context, size int) (v Promise[R], err error) {
+func StreamPromises[R any](ctx context.Context, size int, options ...Option) (v Promise[R], err error) {
 	if size < 1 {
 		err = errors.New("async: stream promises size < 1")
 		return
 	}
+	options = append(options, WithStream(), WithWait())
 	ss := &streamPromises[R]{
 		ctx:      ctx,
 		members:  make([]Promise[R], size),
@@ -77,7 +78,7 @@ func StreamPromises[R any](ctx context.Context, size int) (v Promise[R], err err
 		locker:   spin.New(),
 	}
 	for i := 0; i < size; i++ {
-		s, sErr := MustStreamPromise[R](ctx)
+		s, sErr := Make[R](ctx, options...)
 		if sErr != nil {
 			err = sErr
 			return

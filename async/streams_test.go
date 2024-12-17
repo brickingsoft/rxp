@@ -16,7 +16,7 @@ func TestJoinStreamFutures(t *testing.T) {
 	}()
 	futures := make([]async.Future[int], 0, 1)
 	for i := 0; i < 10; i++ {
-		promise, _ := async.TryStreamPromise[int](ctx)
+		promise, _ := async.Make[int](ctx, async.WithStream())
 		promise.Succeed(i)
 		promise.Succeed(i + 10)
 		promise.Cancel()

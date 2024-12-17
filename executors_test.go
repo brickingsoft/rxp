@@ -82,6 +82,13 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
 
+// BenchmarkTryExecute
+// goos: windows
+// goarch: amd64
+// pkg: github.com/brickingsoft/rxp
+// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
+// BenchmarkTryExecute
+// BenchmarkTryExecute-20    	 2940900	       385.0 ns/op	         0 failed	       0 B/op	       0 allocs/op
 func BenchmarkTryExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()

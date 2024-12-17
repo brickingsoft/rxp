@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -26,8 +25,8 @@ func TestTryPromise(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, ok := async.TryPromise[int](ctx)
-	if !ok {
+	promise, promiseErr := async.Make[int](ctx)
+	if promiseErr != nil {
 		t.Errorf("try promise failed")
 		return
 	}
@@ -46,9 +45,9 @@ func TestMustPromise(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, err := async.MustPromise[int](ctx)
-	if err != nil {
-		t.Errorf("try promise failed, %v", err)
+	promise, promiseErr := async.Make[int](ctx, async.WithWait())
+	if promiseErr != nil {
+		t.Errorf("try promise failed, %v", promiseErr)
 		return
 	}
 	promise.Succeed(1)
@@ -66,8 +65,8 @@ func TestTryPromise_CompleteErr(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, ok := async.TryPromise[int](ctx)
-	if !ok {
+	promise, promiseErr := async.Make[int](ctx)
+	if promiseErr != nil {
 		t.Errorf("try promise failed")
 		return
 	}
@@ -86,13 +85,13 @@ func TestTryPromise_Cancel(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise1, ok1 := async.TryPromise[int](ctx)
-	if !ok1 {
+	promise1, ok1 := async.Make[int](ctx)
+	if ok1 != nil {
 		t.Errorf("try promise1 failed")
 		return
 	}
-	promise2, ok2 := async.TryPromise[int](ctx)
-	if !ok2 {
+	promise2, ok2 := async.Make[int](ctx)
+	if ok2 != nil {
 		t.Errorf("try promise2 failed")
 		return
 	}
@@ -116,8 +115,8 @@ func TestTryPromise_Timeout(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise1, ok1 := async.TryPromise[int](ctx)
-	if !ok1 {
+	promise1, ok1 := async.Make[int](ctx)
+	if ok1 != nil {
 		t.Errorf("try promise1 failed")
 		return
 	}
@@ -125,9 +124,10 @@ func TestTryPromise_Timeout(t *testing.T) {
 	future1 := promise1.Future()
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future1 entry:", result, err)
-		promise2, ok2 := async.TryPromise[int](ctx)
-		if !ok2 {
+		promise2, ok2 := async.Make[int](ctx)
+		if ok2 != nil {
 			t.Errorf("try promise2 failed")
+			return
 		}
 		promise2.Succeed(2)
 		future2 := promise2.Future()
@@ -140,36 +140,4 @@ func TestTryPromise_Timeout(t *testing.T) {
 	t.Log("deadline:", deadline, ok)
 	t.Log("UnexpectedEOF:", promise1.UnexpectedEOF())
 	promise1.Succeed(1)
-}
-
-// BenchmarkTryPromise
-// goos: windows
-// goarch: amd64
-// pkg: github.com/brickingsoft/rxp/async
-// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkTryPromise
-// BenchmarkTryPromise-20    	 1969204	       592.8 ns/op	         0 failed	     143 B/op	       3 allocs/op
-func BenchmarkTryPromise(b *testing.B) {
-	b.ReportAllocs()
-	ctx, closer := prepare()
-
-	failed := new(atomic.Int64)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			promise, ok := async.TryPromise[int](ctx)
-			if !ok {
-				failed.Add(1)
-				return
-			}
-			promise.Succeed(1)
-			promise.Future().OnComplete(func(ctx context.Context, result int, err error) {
-			})
-		}
-	})
-	err := closer()
-	if err != nil {
-		b.Error(err)
-	}
-	b.ReportMetric(float64(failed.Load()), "failed")
 }

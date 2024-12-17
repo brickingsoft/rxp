@@ -7,7 +7,7 @@ import "context"
 //
 // 可以用于解决回调地狱的问题。
 func Compose[SRC any, DST any](ctx context.Context, sf Future[SRC], handle func(ctx context.Context, sfe SRC) (df Future[DST])) (dst Future[DST]) {
-	promise, promiseErr := MustPromise[DST](ctx)
+	promise, promiseErr := Make[DST](ctx, WithWait())
 	if promiseErr != nil {
 		dst = FailedImmediately[DST](ctx, promiseErr)
 		return

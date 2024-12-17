@@ -30,6 +30,7 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, stream b
 	return &futureImpl[R]{
 		ctx:           ctx,
 		end:           new(atomic.Bool),
+		exec:          rxp.From(ctx),
 		grc:           grc,
 		unexpectedErr: nil,
 		deadline:      time.Time{},
@@ -41,6 +42,7 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, stream b
 type futureImpl[R any] struct {
 	ctx           context.Context
 	end           *atomic.Bool
+	exec          rxp.Executors
 	grc           *genericResultChan
 	unexpectedErr error
 	deadline      time.Time
@@ -49,6 +51,7 @@ type futureImpl[R any] struct {
 }
 
 func (f *futureImpl[R]) handle() {
+	exec := f.exec
 	ctx := f.ctx
 	grc := f.grc
 	timer := grc.timer
@@ -56,6 +59,14 @@ func (f *futureImpl[R]) handle() {
 	isUnexpectedError := false
 	for {
 		select {
+		case <-exec.NotifyClose():
+			f.end.Store(true)
+			f.unexpectedErr = errors.Join(UnexpectedEOF, ExecutorsClosed)
+			f.handler(f.ctx, *(new(R)), f.unexpectedErr)
+			stopped = true
+			isUnexpectedError = true
+			grc.CloseByUnexpectedError()
+			break
 		case <-ctx.Done():
 			f.end.Store(true)
 			ctxErr := ctx.Err()

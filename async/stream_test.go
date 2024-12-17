@@ -24,8 +24,8 @@ func TestTryStreamPromise(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, ok := async.TryStreamPromise[*Closer](ctx)
-	if !ok {
+	promise, promiseErr := async.Make[*Closer](ctx, async.WithStream())
+	if promiseErr != nil {
 		t.Errorf("try promise failed")
 		return
 	}
@@ -55,7 +55,7 @@ func TestMustStreamPromise(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, err := async.MustStreamPromise[*Closer](ctx)
+	promise, err := async.Make[*Closer](ctx, async.WithStream(), async.WithWait())
 	if err != nil {
 		t.Errorf("try promise failed, %v", err)
 		return

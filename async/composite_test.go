@@ -20,8 +20,8 @@ func TestComposite(t *testing.T) {
 
 	promises := make([]async.Promise[int], 0, 1)
 	for i := 0; i < 10; i++ {
-		promise, ok := async.TryPromise[int](ctx)
-		if !ok {
+		promise, ok := async.Make[int](ctx)
+		if ok != nil {
 			t.Errorf("try promise failed")
 			return
 		}

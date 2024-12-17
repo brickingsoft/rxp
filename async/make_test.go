@@ -2,9 +2,12 @@ package async_test
 
 import (
 	"context"
+	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestMake(t *testing.T) {
@@ -27,6 +30,40 @@ func TestMake(t *testing.T) {
 	})
 }
 
+func TestCloseAfterMake(t *testing.T) {
+	ctx := context.Background()
+	executors := rxp.New(rxp.WithCloseTimeout(500 * time.Millisecond))
+	ctx = rxp.With(ctx, executors)
+	promise, promiseErr := async.Make[int](ctx)
+	if promiseErr != nil {
+		t.Errorf("try promise failed")
+		return
+	}
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	go func(promise async.Promise[int], wg *sync.WaitGroup) {
+		promise.Succeed(1)
+		time.Sleep(1 * time.Second)
+		future := promise.Future()
+		future.OnComplete(func(ctx context.Context, result int, err error) {
+			t.Log("future entry:", result, err, async.IsExecutorsClosed(err))
+			wg.Done()
+		})
+	}(promise, wg)
+	err := executors.CloseGracefully()
+	if err != nil {
+		t.Error(err)
+	}
+	wg.Wait()
+}
+
+// BenchmarkMake
+// goos: windows
+// goarch: amd64
+// pkg: github.com/brickingsoft/rxp/async
+// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
+// BenchmarkMake
+// BenchmarkMake-20    	 2016514	       533.3 ns/op	         0 failed	     175 B/op	       4 allocs/op
 func BenchmarkMake(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()
@@ -52,6 +89,13 @@ func BenchmarkMake(b *testing.B) {
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
 
+// BenchmarkMakeDirect
+// goos: windows
+// goarch: amd64
+// pkg: github.com/brickingsoft/rxp/async
+// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
+// BenchmarkMakeDirect
+// BenchmarkMakeDirect-20    	 2740728	       449.4 ns/op	         0 failed	     230 B/op	       6 allocs/op
 func BenchmarkMakeDirect(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()
@@ -77,6 +121,13 @@ func BenchmarkMakeDirect(b *testing.B) {
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
 
+// BenchmarkMakeUnlimited
+// goos: windows
+// goarch: amd64
+// pkg: github.com/brickingsoft/rxp/async
+// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
+// BenchmarkMakeUnlimited
+// BenchmarkMakeUnlimited-20    	 2942133	       424.2 ns/op	         0 failed	     225 B/op	       6 allocs/op
 func BenchmarkMakeUnlimited(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()

@@ -15,8 +15,8 @@ func TestPromise_Await(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, ok := async.TryPromise[int](ctx)
-	if !ok {
+	promise, ok := async.Make[int](ctx)
+	if ok != nil {
 		t.Errorf("try promise failed")
 		return
 	}
@@ -37,8 +37,8 @@ func TestStreamPromise_Await(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise, ok := async.TryStreamPromise[int](ctx)
-	if !ok {
+	promise, ok := async.Make[int](ctx, async.WithStream())
+	if ok != nil {
 		t.Errorf("try promise failed")
 		return
 	}

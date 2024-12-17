@@ -55,8 +55,14 @@ type Executors interface {
 	// 当前 goroutine 数量
 	Goroutines() (n int64)
 	// Available
-	// 剩余 goroutine 数量
+	// 是否存在剩余 goroutine 或 是否运行中
 	Available() bool
+	// Running
+	// 是否运行中
+	Running() bool
+	// NotifyClose
+	// 通知关闭
+	NotifyClose() <-chan struct{}
 	// TryGetTaskSubmitter
 	// 尝试获取一个 TaskSubmitter
 	//
@@ -114,6 +120,7 @@ func New(options ...Option) Executors {
 		goroutines:                     counter.New(),
 		stopCh:                         nil,
 		stopTimeout:                    opts.CloseTimeout,
+		notifyClose:                    nil,
 		undo:                           undo,
 	}
 	exec.start()
@@ -130,6 +137,7 @@ type executors struct {
 	goroutines                     *counter.Counter
 	stopCh                         chan struct{}
 	stopTimeout                    time.Duration
+	notifyClose                    chan struct{}
 	undo                           maxprocs.Undo
 }
 
@@ -233,6 +241,10 @@ func (exec *executors) Available() bool {
 	return exec.running.Load() && exec.goroutines.Value() < exec.maxGoroutines
 }
 
+func (exec *executors) Running() bool {
+	return exec.running.Load()
+}
+
 func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
 	var submitter *submitterImpl
 	createExecutor := false
@@ -281,6 +293,7 @@ func (exec *executors) Close() (err error) {
 	defer exec.undo()
 	exec.running.Store(false)
 	exec.shutdown()
+	close(exec.notifyClose)
 	return
 }
 
@@ -294,6 +307,7 @@ func (exec *executors) CloseGracefully() (err error) {
 		if goroutinesErr != nil {
 			err = errors.Join(ErrCloseFailed, goroutinesErr)
 		}
+		close(exec.notifyClose)
 		return
 	}
 	var cancel context.CancelFunc
@@ -301,16 +315,23 @@ func (exec *executors) CloseGracefully() (err error) {
 	err = exec.goroutines.WaitDownTo(ctx, 0)
 	if err != nil {
 		cancel()
+		close(exec.notifyClose)
 		err = errors.Join(ErrCloseFailed, err)
 		return
 	}
 	cancel()
+	close(exec.notifyClose)
 	return
+}
+
+func (exec *executors) NotifyClose() <-chan struct{} {
+	return exec.notifyClose
 }
 
 func (exec *executors) start() {
 	exec.running.Store(true)
 	exec.stopCh = make(chan struct{})
+	exec.notifyClose = make(chan struct{}, 1)
 	exec.submitters.New = func() interface{} {
 		return &submitterImpl{
 			lastUseTime: time.Time{},

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rxp"
-	"runtime"
 	"time"
 )
 
@@ -19,7 +18,7 @@ var (
 	UnexpectedEOF           = errors.New("async: unexpected EOF")
 	Busy                    = errors.New("async: busy")
 	UnexpectedContextFailed = errors.New("async: unexpected context failed")
-	ExecutorsClosed         = errors.New("async: executors closed")
+	ExecutorsClosed         = rxp.ErrClosed
 )
 
 // IsEOF
@@ -102,44 +101,6 @@ type Promise[R any] interface {
 	//
 	// 注意：必须调用 Future.OnComplete，否则协程会泄漏。
 	Future() (future Future[R])
-}
-
-// TryPromise
-// 尝试获取一个许诺，如果资源已耗光则获取不到。
-//
-// 许诺只能完成一次，完成后则不可再用。
-// 当 Promise.Complete ，Promise.Succeed ，Promise.Fail 后，不必再 Promise.Cancel 来关闭它。
-func TryPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
-	exec := rxp.From(ctx)
-	submitter, has := exec.TryGetTaskSubmitter()
-	if has {
-		promise = newPromise[T](ctx, submitter)
-		ok = true
-	}
-	return
-}
-
-// MustPromise
-// 必须获得一个许诺，如果资源已耗光则等待，直到可以或者上下文错误。
-func MustPromise[T any](ctx context.Context) (promise Promise[T], err error) {
-	times := 10
-	ok := false
-	for {
-		promise, ok = TryPromise[T](ctx)
-		if ok {
-			break
-		}
-		if err = ctx.Err(); err != nil {
-			break
-		}
-		time.Sleep(ns500)
-		times--
-		if times < 0 {
-			times = 10
-			runtime.Gosched()
-		}
-	}
-	return
 }
 
 func newPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter) Promise[R] {

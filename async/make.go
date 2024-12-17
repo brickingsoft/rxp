@@ -26,6 +26,14 @@ type Option func(*Options)
 
 // WithStream
 // 流式许诺
+//
+// 无限流的特性是可以无限次完成许诺，而不是一次。
+//
+// 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
+//
+// 关于许诺值，如果它实现了 io.Closer ，则当 Promise.Cancel 后且它未没处理，那么会自动 转化为 io.Closer 进行关闭。
+//
+// 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func WithStream() Option {
 	return func(o *Options) {
 		o.Stream = true
@@ -122,6 +130,15 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 	for _, o := range options {
 		o(&opt)
 	}
+	exec, has := rxp.TryFrom(ctx)
+	if !has {
+		err = errors.New("async: executable not found")
+		return
+	}
+	if !exec.Running() {
+		err = ExecutorsClosed
+		return
+	}
 	var submitter rxp.TaskSubmitter
 	switch opt.Mode {
 	case Unlimited:
@@ -131,11 +148,6 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		submitter = &directSubmitter{ctx: ctx}
 		break
 	case Normal:
-		exec, has := rxp.TryFrom(ctx)
-		if !has {
-			err = errors.New("async: executable not found")
-			return
-		}
 		if opt.WaitTimeout < 0 {
 			submitter, has = exec.TryGetTaskSubmitter()
 			if !has {
@@ -157,6 +169,10 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 			if err = ctx.Err(); err != nil {
 				break
 			}
+			if !exec.Running() {
+				err = ExecutorsClosed
+				break
+			}
 			time.Sleep(ns500)
 			times--
 			if times < 0 {
@@ -166,6 +182,9 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		}
 		if cancel != nil {
 			cancel()
+		}
+		if err != nil {
+			return
 		}
 		break
 	default:
