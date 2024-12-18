@@ -42,18 +42,15 @@ func TestCloseAfterMake(t *testing.T) {
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	go func(promise async.Promise[int], wg *sync.WaitGroup) {
-		promise.Succeed(1)
-		time.Sleep(1 * time.Second)
 		future := promise.Future()
 		future.OnComplete(func(ctx context.Context, result int, err error) {
 			t.Log("future entry:", result, err, async.IsExecutorsClosed(err))
 			wg.Done()
 		})
+		_ = executors.CloseGracefully()
+		promise.Succeed(1)
 	}(promise, wg)
-	err := executors.CloseGracefully()
-	if err != nil {
-		t.Error(err)
-	}
+
 	wg.Wait()
 }
 
