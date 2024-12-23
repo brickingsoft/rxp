@@ -100,7 +100,17 @@ func (f *futureImpl[R]) handle() {
 			break
 		case entry := <-grc.entries:
 			if entry.cause != nil {
-				f.handler(f.ctx, *(new(R)), entry.cause)
+				if entry.value == nil {
+					f.handler(f.ctx, *(new(R)), entry.cause)
+				} else {
+					r, ok := entry.value.(R)
+					if ok {
+						f.handler(f.ctx, r, entry.cause)
+					} else {
+						err := errors.Join(entry.cause, UnexpectedEOF, ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String()))
+						f.handler(f.ctx, *(new(R)), err)
+					}
+				}
 				if !grc.stream {
 					f.end.Store(true)
 					stopped = true

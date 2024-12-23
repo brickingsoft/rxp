@@ -2,6 +2,7 @@ package async_test
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"sync"
@@ -52,6 +53,26 @@ func TestCloseAfterMake(t *testing.T) {
 	}(promise, wg)
 
 	wg.Wait()
+}
+
+func TestFailedWithResult(t *testing.T) {
+	ctx, closer := prepare()
+	defer func() {
+		err := closer()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	promise, err := async.Make[int](ctx)
+	if err != nil {
+		t.Errorf("try promise failed")
+		return
+	}
+	promise.Complete(1, errors.New("error"))
+	future := promise.Future()
+	future.OnComplete(func(ctx context.Context, result int, err error) {
+		t.Log("future entry:", result, err)
+	})
 }
 
 // BenchmarkMake
