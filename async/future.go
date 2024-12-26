@@ -230,8 +230,9 @@ func (f *futureImpl[R]) Deadline() (deadline time.Time, ok bool) {
 
 func (f *futureImpl[R]) Complete(r R, err error) {
 	defer func() {
-		_ = recover()
-		tryCloseResultWhenUnexpectedlyErrorOccur(r)
+		if recovered := recover(); recovered != nil {
+			tryCloseResultWhenUnexpectedlyErrorOccur(r)
+		}
 		return
 	}()
 	if f.end.Load() || f.grc == nil {
