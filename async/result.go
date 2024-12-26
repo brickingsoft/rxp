@@ -60,6 +60,10 @@ type ResultHandler[E any] func(ctx context.Context, entry E, cause error)
 
 var DiscardVoidHandler ResultHandler[Void] = func(_ context.Context, _ Void, _ error) {}
 
+type Closer interface {
+	Close() (future Future[Void])
+}
+
 func tryCloseResultWhenUnexpectedlyErrorOccur(v any) {
 	if v == nil {
 		return
@@ -68,6 +72,12 @@ func tryCloseResultWhenUnexpectedlyErrorOccur(v any) {
 	closer, isCloser := ri.(io.Closer)
 	if isCloser {
 		_ = closer.Close()
+		return
+	}
+	asyncCloser, isAsyncCloser := ri.(Closer)
+	if isAsyncCloser {
+		asyncCloser.Close().OnComplete(DiscardVoidHandler)
+		return
 	}
 }
 
