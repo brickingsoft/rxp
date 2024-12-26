@@ -61,38 +61,49 @@ func (f *futureImpl[R]) handle() {
 		select {
 		case <-exec.NotifyClose():
 			f.end.Store(true)
-			f.unexpectedErr = errors.Join(UnexpectedEOF, ExecutorsClosed)
-			f.handler(f.ctx, *(new(R)), f.unexpectedErr)
+			f.unexpectedErr = ExecutorsClosed
+			if grc.stream {
+				f.handler(f.ctx, *(new(R)), errors.Join(EOF, UnexpectedEOF, ExecutorsClosed))
+			} else {
+				f.handler(f.ctx, *(new(R)), errors.Join(Canceled, ExecutorsClosed))
+			}
 			stopped = true
 			isUnexpectedError = true
 			grc.CloseByUnexpectedError()
 			break
 		case <-ctx.Done():
 			f.end.Store(true)
-			ctxErr := ctx.Err()
+			var err error
 			deadline, ok := ctx.Deadline()
 			if ok {
-				f.unexpectedErr = errors.Join(UnexpectedEOF, DeadlineExceeded, ctxErr)
+				err = DeadlineExceeded
 				f.deadline = deadline
 			} else {
+				ctxErr := ctx.Err()
 				if ctxErr != nil {
-					f.unexpectedErr = errors.Join(UnexpectedEOF, ctxErr)
+					err = ctxErr
+					f.unexpectedErr = ctxErr
 				} else {
-					f.unexpectedErr = errors.Join(UnexpectedEOF, UnexpectedContextFailed)
+					err = UnexpectedContextFailed
+					f.unexpectedErr = UnexpectedContextFailed
 				}
 			}
-			f.handler(f.ctx, *(new(R)), f.unexpectedErr)
+			if grc.stream {
+				f.handler(f.ctx, *(new(R)), errors.Join(EOF, UnexpectedEOF, err))
+			} else {
+				f.handler(f.ctx, *(new(R)), errors.Join(Canceled, err))
+			}
 			stopped = true
 			isUnexpectedError = true
 			grc.CloseByUnexpectedError()
 			break
 		case deadline := <-timer.C:
-			f.unexpectedErr = errors.Join(UnexpectedEOF, DeadlineExceeded)
 			f.deadline = deadline
-			f.handler(f.ctx, *(new(R)), f.unexpectedErr)
-			// stream future will not break when timeout
-			// call cancel to stop when need to cancel
-			if !grc.stream {
+			if grc.stream {
+				// stream future will not break when timeout
+				f.handler(f.ctx, *(new(R)), DeadlineExceeded)
+			} else {
+				f.handler(f.ctx, *(new(R)), errors.Join(Canceled, DeadlineExceeded))
 				f.end.Store(true)
 				stopped = true
 				break
@@ -107,7 +118,7 @@ func (f *futureImpl[R]) handle() {
 					if ok {
 						f.handler(f.ctx, r, entry.cause)
 					} else {
-						err := errors.Join(entry.cause, UnexpectedEOF, ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String()))
+						err := errors.Join(entry.cause, ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String()))
 						f.handler(f.ctx, *(new(R)), err)
 					}
 				}
@@ -119,7 +130,11 @@ func (f *futureImpl[R]) handle() {
 			}
 			switch value := entry.value.(type) {
 			case genericResultChanCancel:
-				f.handler(f.ctx, *(new(R)), EOF)
+				if grc.stream {
+					f.handler(f.ctx, *(new(R)), EOF)
+				} else {
+					f.handler(f.ctx, *(new(R)), Canceled)
+				}
 				f.end.Store(true)
 				stopped = true
 				break
@@ -132,7 +147,7 @@ func (f *futureImpl[R]) handle() {
 				}
 				break
 			default:
-				err := errors.Join(UnexpectedEOF, ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String()))
+				err := errors.Join(ResultTypeUnmatched, fmt.Errorf("recv type is %s", reflect.TypeOf(entry).String()))
 				f.handler(f.ctx, *(new(R)), err)
 				if !grc.stream {
 					f.end.Store(true)
@@ -197,7 +212,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	if ok := f.submitter.Submit(f.handle); !ok {
 		f.submitter.Cancel()
 		f.clean()
-		handler(f.ctx, *(new(R)), errors.Join(UnexpectedEOF, ExecutorsClosed))
+		handler(f.ctx, *(new(R)), errors.Join(Canceled, ExecutorsClosed))
 	}
 	return
 }
