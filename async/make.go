@@ -177,6 +177,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 			times--
 			if times < 0 {
 				times = 10
+				time.Sleep(time.Millisecond)
 				runtime.Gosched()
 			}
 		}
