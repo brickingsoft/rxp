@@ -44,10 +44,10 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 	for _, m := range s.members {
 		m.OnComplete(func(ctx context.Context, entry R, cause error) {
 			if cause != nil {
-				if IsCanceled(cause) || IsEOF(cause) || IsUnexpectedEOF(cause) {
+				if IsEOF(cause) || IsUnexpectedEOF(cause) || IsExecutorsClosed(cause) || IsUnexpectedContextFailed(cause) {
 					s.alive.Add(-1)
 					if s.alive.Load() == 0 {
-						handler(ctx, entry, EOF)
+						handler(ctx, entry, cause)
 						return
 					}
 					return
