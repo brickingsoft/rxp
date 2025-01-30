@@ -44,13 +44,15 @@ func TestTryStreamPromise(t *testing.T) {
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
-			t.Log("is eof:", async.IsEOF(err))
+			t.Log("is canceled:", async.IsCanceled(err))
 			return
 		}
 		return
 	})
 	for i := 0; i < 10; i++ {
-		promise.Succeed(&Closer{N: i, t: t})
+		if ok := promise.Succeed(&Closer{N: i, t: t}); !ok {
+			t.Errorf("try promise failed")
+		}
 	}
 	promise.Cancel()
 	for i := 0; i < 10; i++ {
@@ -75,7 +77,7 @@ func TestTryStreamPromiseWithAsyncCloser(t *testing.T) {
 	future.OnComplete(func(ctx context.Context, result *AsyncCloser, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
-			t.Log("is eof:", async.IsEOF(err))
+			t.Log("is canceled:", async.IsCanceled(err))
 			return
 		}
 		return
@@ -108,7 +110,7 @@ func TestMustStreamPromise(t *testing.T) {
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
-			t.Log("is eof:", async.IsEOF(err))
+			t.Log("is eof:", async.IsCanceled(err))
 			cancel()
 			return
 		}

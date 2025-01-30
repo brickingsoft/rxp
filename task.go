@@ -46,5 +46,5 @@ func (submitter *submitterImpl) Cancel() {
 }
 
 func (submitter *submitterImpl) stop() {
-	submitter.ch <- nil
+	close(submitter.ch)
 }

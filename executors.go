@@ -154,11 +154,9 @@ func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
 		submitter.Cancel()
 		break
 	default:
-		submitter.Submit(task)
-		ok = true
+		ok = submitter.Submit(task)
 		break
 	}
-
 	return
 }
 

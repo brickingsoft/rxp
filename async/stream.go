@@ -1,10 +1,5 @@
 package async
 
-import (
-	"context"
-	"github.com/brickingsoft/rxp"
-)
-
 // IsStreamFuture
 // 判断是否是流
 func IsStreamFuture[T any](future Future[T]) bool {
@@ -12,7 +7,7 @@ func IsStreamFuture[T any](future Future[T]) bool {
 		return false
 	}
 	impl := future.(*futureImpl[T])
-	stream := impl.grc.stream
+	stream := impl.stream
 	return stream
 }
 
@@ -23,10 +18,6 @@ func IsStreamPromise[T any](promise Promise[T]) bool {
 		return false
 	}
 	impl := promise.(*futureImpl[T])
-	stream := impl.grc.stream
+	stream := impl.stream
 	return stream
-}
-
-func newStreamPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter) Promise[R] {
-	return newFuture[R](ctx, submitter, true)
 }

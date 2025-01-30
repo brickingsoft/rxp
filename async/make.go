@@ -17,9 +17,9 @@ const (
 )
 
 type Options struct {
-	Stream      bool
 	Mode        PromiseMode
 	WaitTimeout time.Duration
+	FutureOptions
 }
 
 type Option func(*Options)
@@ -35,8 +35,18 @@ type Option func(*Options)
 //
 // 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func WithStream() Option {
+	return WithStreamAndBuffer(64)
+}
+
+// WithStreamAndBuffer
+// 流式许诺
+func WithStreamAndBuffer(buffer int) Option {
 	return func(o *Options) {
 		o.Stream = true
+		if buffer <= 0 {
+			buffer = 1
+		}
+		o.BufferSize = buffer
 	}
 }
 
@@ -68,9 +78,13 @@ func WithDirectMode() Option {
 // 在有限时间内等待一个可用的
 func WithWaitTimeout(timeout time.Duration) Option {
 	return func(o *Options) {
-		if timeout > -1 {
-			o.WaitTimeout = timeout
+		if timeout < 1 {
+			return
 		}
+		if o.WaitTimeout > 0 && o.WaitTimeout < timeout {
+			return
+		}
+		o.WaitTimeout = timeout
 	}
 }
 
@@ -78,7 +92,41 @@ func WithWaitTimeout(timeout time.Duration) Option {
 // 等待一个可用的
 func WithWait() Option {
 	return func(o *Options) {
-		o.WaitTimeout = 0
+		if o.WaitTimeout == 0 {
+			o.WaitTimeout = -1
+		}
+	}
+}
+
+// WithDeadline
+// 设置死期
+func WithDeadline(deadline time.Time) Option {
+	return func(o *Options) {
+		if deadline.IsZero() {
+			return
+		}
+		timeout := time.Until(deadline)
+		if timeout < 1 {
+			return
+		}
+		if o.WaitTimeout < 1 || o.WaitTimeout > timeout {
+			o.WaitTimeout = timeout
+		}
+		o.Timeout = timeout
+	}
+}
+
+// WithTimeout
+// 设置超时
+func WithTimeout(timeout time.Duration) Option {
+	return func(o *Options) {
+		if timeout < 1 {
+			return
+		}
+		if o.WaitTimeout < 1 || o.WaitTimeout > timeout {
+			o.WaitTimeout = timeout
+		}
+		o.Timeout = timeout
 	}
 }
 
@@ -88,9 +136,13 @@ type optionsCtxKey struct{}
 // 把 Make 的 Options 绑定到 context.Context。常用于设置上下文中的默认选项。
 func WithOptions(ctx context.Context, options ...Option) context.Context {
 	opt := Options{
-		Stream:      false,
 		Mode:        Normal,
-		WaitTimeout: -1,
+		WaitTimeout: 0,
+		FutureOptions: FutureOptions{
+			Stream:     false,
+			BufferSize: 0,
+			Timeout:    0,
+		},
 	}
 	for _, o := range options {
 		o(&opt)
@@ -102,9 +154,13 @@ func getOptions(ctx context.Context) Options {
 	value := ctx.Value(optionsCtxKey{})
 	if value == nil {
 		return Options{
-			Stream:      false,
 			Mode:        Normal,
-			WaitTimeout: -1,
+			WaitTimeout: 0,
+			FutureOptions: FutureOptions{
+				Stream:     false,
+				BufferSize: 0,
+				Timeout:    0,
+			},
 		}
 	}
 	opt := value.(Options)
@@ -122,9 +178,11 @@ func getOptions(ctx context.Context) Options {
 //
 // 直接模式：使用 WithDirectMode 进行设置。
 //
-// 设置等待协程分配时长：使用 WithWaitTimeout 进行设置，只适用于普通模式。
+// 设置等待协程分配时长：使用 WithWaitTimeout 进行设置，只适用于普通模式，当超时后返回 Busy。
 //
 // 无限等待协程分配：使用 WithWait 进行设置，只适用于普通模式。
+//
+// 设置超时：使用 WithDeadline 或 WithTimeout，它会覆盖 WithWaitTimeout 或 WithWait。
 func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
 	opt := getOptions(ctx)
 	for _, o := range options {
@@ -148,17 +206,22 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		submitter = &directSubmitter{ctx: ctx}
 		break
 	case Normal:
-		if opt.WaitTimeout < 0 {
+		if opt.WaitTimeout == 0 {
 			submitter, has = exec.TryGetTaskSubmitter()
 			if !has {
-				err = Busy
+				if !exec.Running() {
+					err = ExecutorsClosed
+				} else {
+					err = Busy
+				}
 				return
 			}
 			break
 		}
+		var waitCtx context.Context
 		var cancel context.CancelFunc
 		if opt.WaitTimeout > 0 {
-			ctx, cancel = context.WithTimeout(ctx, opt.WaitTimeout)
+			waitCtx, cancel = context.WithTimeout(ctx, opt.WaitTimeout)
 		}
 		times := 10
 		for {
@@ -166,19 +229,24 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 			if has {
 				break
 			}
-			if err = ctx.Err(); err != nil {
+			if waitCtx != nil && waitCtx.Err() != nil {
+				err = Busy
+				break
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				err = newUnexpectedContextError(ctx)
 				break
 			}
 			if !exec.Running() {
 				err = ExecutorsClosed
 				break
 			}
-			time.Sleep(ns500)
 			times--
 			if times < 0 {
 				times = 10
 				runtime.Gosched()
 			}
+			time.Sleep(ns500)
 		}
 		if cancel != nil {
 			cancel()
@@ -191,7 +259,6 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		err = errors.New("async: invalid mode")
 		return
 	}
-	stream := opt.Stream
-	p = newFuture[R](ctx, submitter, stream)
+	p = newFuture[R](ctx, submitter, opt.FutureOptions)
 	return
 }

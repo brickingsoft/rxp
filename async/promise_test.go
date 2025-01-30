@@ -115,12 +115,11 @@ func TestTryPromise_Timeout(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	promise1, ok1 := async.Make[int](ctx)
+	promise1, ok1 := async.Make[int](ctx, async.WithTimeout(time.Second*3))
 	if ok1 != nil {
 		t.Errorf("try promise1 failed")
 		return
 	}
-	promise1.SetDeadline(time.Now().Add(3 * time.Second))
 	future1 := promise1.Future()
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future1 entry:", result, err)
@@ -136,8 +135,82 @@ func TestTryPromise_Timeout(t *testing.T) {
 		})
 	})
 	time.Sleep(4 * time.Second)
-	deadline, ok := promise1.Deadline()
-	t.Log("deadline:", deadline, ok)
-	t.Log("UnexpectedEOF:", promise1.UnexpectedEOF())
 	promise1.Succeed(1)
+}
+
+func TestAsDeadlineExceededError(t *testing.T) {
+	v := &async.DeadlineExceededError{Err: async.DeadlineExceeded, Deadline: time.Now()}
+	err, ok := async.AsDeadlineExceededError(v)
+	if ok {
+		t.Log("AsDeadlineExceededError:", err)
+	} else {
+		t.Log("AsDeadlineExceededError: failed")
+	}
+}
+
+func TestAsUnexpectedContextError(t *testing.T) {
+	v := &async.UnexpectedContextError{CtxErr: errors.New("some context"), Err: async.UnexpectedContextFailed}
+	err, ok := async.AsUnexpectedContextError(v)
+	if ok {
+		t.Log("AsUnexpectedContextError:", err)
+	} else {
+		t.Log("AsUnexpectedContextError: failed")
+	}
+}
+
+func TestStreamPromises_WithErrInterceptor(t *testing.T) {
+	ctx, closer := prepare()
+	defer func() {
+		err := closer()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	promise, promiseErr := async.Make[int](ctx)
+	if promiseErr != nil {
+		t.Errorf("try promise failed")
+		return
+	}
+	promise.WithErrInterceptor(&errInterceptor[int]{t: t})
+	promise.Fail(errors.New("complete failed"))
+	future := promise.Future()
+	future.OnComplete(func(ctx context.Context, result int, err error) {
+		t.Log("future entry:", result, err)
+	})
+}
+
+type errInterceptor[R any] struct {
+	t *testing.T
+}
+
+func (e *errInterceptor[R]) Handle(ctx context.Context, value R, err error) (future async.Future[R]) {
+	e.t.Log(err)
+	future = async.FailedImmediately[R](ctx, err)
+	return
+}
+
+func TestStreamPromises_SetResultChan(t *testing.T) {
+	ctx, closer := prepare()
+	defer func() {
+		err := closer()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	promise, promiseErr := async.Make[int](ctx)
+	if promiseErr != nil {
+		t.Errorf("try promise failed")
+		return
+	}
+	ch := make(chan async.Result[int], 1)
+	setErr := promise.SetResultChan(ch)
+	if setErr != nil {
+		t.Error(setErr)
+		return
+	}
+	promise.Future().OnComplete(func(ctx context.Context, result int, err error) {
+		t.Log("future entry:", result, err)
+	})
+	ch <- async.SucceedResult[int](1)
+	close(ch)
 }

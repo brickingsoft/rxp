@@ -35,10 +35,10 @@ func TestComposite(t *testing.T) {
 		nn := make([]int, 0, 1)
 		ee := make([]error, 0, 1)
 		for _, result := range results {
-			if result.Succeed() {
-				nn = append(nn, result.Entry())
+			if cause := result.Error(); cause != nil {
+				ee = append(ee, cause)
 			} else {
-				ee = append(ee, result.Cause())
+				nn = append(nn, result.Value())
 			}
 		}
 		t.Log("composite future:", nn, ee)

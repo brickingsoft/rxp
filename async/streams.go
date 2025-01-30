@@ -6,7 +6,6 @@ import (
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // JoinStreamFutures
@@ -36,22 +35,24 @@ func JoinStreamFutures[R any](members []Future[R]) Future[R] {
 }
 
 type streamFutures[R any] struct {
-	members []Future[R]
-	alive   *atomic.Int64
+	members        []Future[R]
+	alive          *atomic.Int64
+	errInterceptor ErrInterceptor[R]
 }
 
 func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 	for _, m := range s.members {
 		m.OnComplete(func(ctx context.Context, entry R, cause error) {
 			if cause != nil {
-				if IsEOF(cause) || IsUnexpectedEOF(cause) || IsExecutorsClosed(cause) || IsUnexpectedContextFailed(cause) {
+				if IsCanceled(cause) || IsExecutorsClosed(cause) || IsUnexpectedContextFailed(cause) {
 					s.alive.Add(-1)
-					if s.alive.Load() == 0 {
-						handler(ctx, entry, cause)
-						return
-					}
-					return
 				}
+				if s.errInterceptor != nil {
+					s.errInterceptor.Handle(ctx, entry, cause).OnComplete(handler)
+				} else {
+					handler(ctx, entry, cause)
+				}
+				return
 			}
 			handler(ctx, entry, cause)
 		})
@@ -92,13 +93,14 @@ func StreamPromises[R any](ctx context.Context, size int, options ...Option) (v 
 }
 
 type streamPromises[R any] struct {
-	ctx      context.Context
-	members  []Promise[R]
-	index    int
-	size     int
-	alive    *atomic.Int64
-	canceled bool
-	locker   sync.Locker
+	ctx            context.Context
+	members        []Promise[R]
+	index          int
+	size           int
+	alive          *atomic.Int64
+	canceled       bool
+	locker         sync.Locker
+	errInterceptor ErrInterceptor[R]
 }
 
 func (ss *streamPromises[R]) ko() bool {
@@ -114,36 +116,37 @@ func (ss *streamPromises[R]) next() (p Promise[R]) {
 	return
 }
 
-func (ss *streamPromises[R]) Complete(r R, err error) {
+func (ss *streamPromises[R]) Complete(r R, err error) bool {
 	ss.locker.Lock()
 	if ss.ko() {
-		tryCloseResultWhenUnexpectedlyErrorOccur(r)
 		ss.locker.Unlock()
-		return
+		return false
 	}
 	ss.next().Complete(r, err)
 	ss.locker.Unlock()
+	return true
 }
 
-func (ss *streamPromises[R]) Succeed(r R) {
+func (ss *streamPromises[R]) Succeed(r R) bool {
 	ss.locker.Lock()
 	if ss.ko() {
-		tryCloseResultWhenUnexpectedlyErrorOccur(r)
 		ss.locker.Unlock()
-		return
+		return false
 	}
 	ss.next().Succeed(r)
 	ss.locker.Unlock()
+	return true
 }
 
-func (ss *streamPromises[R]) Fail(cause error) {
+func (ss *streamPromises[R]) Fail(cause error) bool {
 	ss.locker.Lock()
 	if ss.ko() {
 		ss.locker.Unlock()
-		return
+		return false
 	}
 	ss.next().Fail(cause)
 	ss.locker.Unlock()
+	return true
 }
 
 func (ss *streamPromises[R]) Cancel() {
@@ -160,19 +163,13 @@ func (ss *streamPromises[R]) Cancel() {
 	return
 }
 
-func (ss *streamPromises[R]) SetDeadline(_ time.Time) {
-	return
+func (ss *streamPromises[R]) WithErrInterceptor(v ErrInterceptor[R]) Promise[R] {
+	ss.errInterceptor = v
+	return ss
 }
 
-func (ss *streamPromises[R]) Deadline() (deadline time.Time, ok bool) {
-	deadline, ok = ss.ctx.Deadline()
-	return
-}
-
-func (ss *streamPromises[R]) UnexpectedEOF() (err error) {
-	if ctxErr := ss.ctx.Err(); ctxErr != nil {
-		err = errors.Join(UnexpectedEOF, ctxErr)
-	}
+func (ss *streamPromises[R]) SetResultChan(ch chan Result[R]) (err error) {
+	err = errors.New("async.Promise: can not SetResultChan called on a async.StreamPromises")
 	return
 }
 
@@ -182,8 +179,9 @@ func (ss *streamPromises[R]) Future() (future Future[R]) {
 		futures = append(futures, m.Future())
 	}
 	future = &streamFutures[R]{
-		members: futures,
-		alive:   ss.alive,
+		members:        futures,
+		alive:          ss.alive,
+		errInterceptor: ss.errInterceptor,
 	}
 	return
 }

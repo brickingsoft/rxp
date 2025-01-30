@@ -12,27 +12,12 @@ const (
 )
 
 var (
-	ResultTypeUnmatched     = errors.New("async: result type unmatched")
-	EOF                     = errors.New("async: end of future")
 	Canceled                = errors.New("async: promise canceled")
 	DeadlineExceeded        = errors.New("async: deadline exceeded")
-	UnexpectedEOF           = errors.New("async: unexpected EOF")
 	Busy                    = errors.New("async: busy")
 	UnexpectedContextFailed = errors.New("async: unexpected context failed")
 	ExecutorsClosed         = rxp.ErrClosed
 )
-
-// IsEOF
-// 是否为 EOF 错误，指 stream 正常关闭。
-func IsEOF(err error) bool {
-	return errors.Is(err, EOF)
-}
-
-// IsUnexpectedEOF
-// 是否为 UnexpectedEOF 错误，指 stream 不正常关闭。
-func IsUnexpectedEOF(err error) bool {
-	return errors.Is(err, UnexpectedEOF)
-}
 
 // IsExecutorsClosed
 // 是否为 ExecutorsClosed 错误，指 rxp.Executors 关闭。
@@ -47,11 +32,10 @@ func IsUnexpectedContextFailed(err error) bool {
 }
 
 // IsCanceled
-// 是否为 Canceled 错误，指 Promise 取消且关闭。
+// 是否为 Canceled 错误，指 非 stream Promise 取消且关闭。
 // 由：
 // - Promise.Cancel 触发
-// - 非 stream 超时触发
-// - context.Context 完成了触发
+// - context.Context 取消或超时触发，并携带 UnexpectedContextFailed
 // - rxp.Executors 关闭触发
 func IsCanceled(err error) bool {
 	return errors.Is(err, Canceled)
@@ -62,12 +46,6 @@ func IsCanceled(err error) bool {
 // stream 不会关闭。非 stream 会关闭，所以还有一个 Canceled。
 func IsDeadlineExceeded(err error) bool {
 	return errors.Is(err, DeadlineExceeded)
-}
-
-// IsResultTypeUnmatched
-// 是否为 ResultTypeUnmatched 错误，指 Promise.Succeed 与 Future 的 entry 类型不一致。
-func IsResultTypeUnmatched(err error) bool {
-	return errors.Is(err, ResultTypeUnmatched)
 }
 
 // IsBusy
@@ -83,26 +61,22 @@ func IsBusy(err error) bool {
 type Promise[R any] interface {
 	// Complete
 	// 完成
-	Complete(r R, err error)
+	Complete(r R, err error) bool
 	// Succeed
 	// 成功完成
-	Succeed(r R)
+	Succeed(r R) bool
 	// Fail
 	// 错误完成
-	Fail(cause error)
+	Fail(err error) bool
 	// Cancel
-	// 取消许诺，未来会是一个 Canceled 错误，如果是流式，则是 EOF。
+	// 取消许诺，未来会是一个 Canceled 错误。
 	Cancel()
-	// SetDeadline
-	// 设置死期。
-	// 当超时后，未来会是一个 context.DeadlineExceeded 错误。
-	SetDeadline(t time.Time)
-	// Deadline
-	// 是否超时
-	Deadline() (deadline time.Time, ok bool)
-	// UnexpectedEOF
-	// 是否存在非正常结束错误
-	UnexpectedEOF() (err error)
+	// WithErrInterceptor
+	// 设置错误拦截器，必须在 Complete， Succeed， Fail， Cancel 和 Future.OnComplete 前。
+	WithErrInterceptor(v ErrInterceptor[R]) Promise[R]
+	// SetResultChan
+	// 设置结果频道，必须在 Future.OnComplete ，当设置时，不能使用 Complete， Succeed， Fail， Cancel。而是由频道负责结果。
+	SetResultChan(ch chan Result[R]) (err error)
 	// Future
 	// 未来
 	//
@@ -110,6 +84,44 @@ type Promise[R any] interface {
 	Future() (future Future[R])
 }
 
-func newPromise[R any](ctx context.Context, submitter rxp.TaskSubmitter) Promise[R] {
-	return newFuture[R](ctx, submitter, false)
+func newDeadlineExceededError(deadline time.Time) error {
+	return &DeadlineExceededError{deadline, DeadlineExceeded}
 }
+
+func AsDeadlineExceededError(err error) (*DeadlineExceededError, bool) {
+	var target *DeadlineExceededError
+	ok := errors.As(err, &target)
+	return target, ok
+}
+
+type DeadlineExceededError struct {
+	Deadline time.Time
+	Err      error
+}
+
+func (e *DeadlineExceededError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *DeadlineExceededError) Unwrap() error { return e.Err }
+
+func newUnexpectedContextError(ctx context.Context) error {
+	return &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}
+}
+
+func AsUnexpectedContextError(err error) (*UnexpectedContextError, bool) {
+	var target *UnexpectedContextError
+	ok := errors.As(err, &target)
+	return target, ok
+}
+
+type UnexpectedContextError struct {
+	CtxErr error
+	Err    error
+}
+
+func (e *UnexpectedContextError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *UnexpectedContextError) Unwrap() error { return e.Err }

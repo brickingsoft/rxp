@@ -36,7 +36,7 @@ func TestUnlimitedStreamPromise(t *testing.T) {
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
 		t.Log("future entry:", result, err)
 		if err != nil {
-			t.Log("is closed:", async.IsEOF(err))
+			t.Log("is closed:", async.IsCanceled(err))
 			return
 		}
 		return

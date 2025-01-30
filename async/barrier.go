@@ -21,8 +21,8 @@ type Barrier[R any] interface {
 	Do(ctx context.Context, key string, fn func(promise Promise[R]), options ...Option) (future Future[R])
 	// Forget
 	// 遗忘结果，因会自动 Forget，所以无需在有效逻辑里使用。
-	// 一般用于取消场景，等同于因某些原因直接取消 Promise 而使用 Promise.Cancel 来取消。
-	// 不建议作为关闭 stream来使用，关闭 stream 在 fn 里执行。
+	// 建议在 Do 的返回值 Future 中执行 Forget，而不是在 fn 中执行。
+	// 不建议作为关闭 stream 来使用，关闭 stream 在 fn 里执行。
 	Forget(key string)
 }
 

@@ -1,7 +1,6 @@
 package async_test
 
 import (
-	"errors"
 	"github.com/brickingsoft/rxp/async"
 	"sync"
 	"testing"
@@ -50,7 +49,7 @@ func TestStreamPromise_Await(t *testing.T) {
 		for {
 			v, err := af.Await()
 			if err != nil {
-				if errors.Is(err, async.EOF) {
+				if async.IsCanceled(err) {
 					return
 				}
 				t.Errorf("await failed: %v", err)

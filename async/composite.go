@@ -80,10 +80,10 @@ func (composite *compositeFuture[R, E]) compose() {
 	composite.promise.Succeed(rs)
 }
 
-func (composite *compositeFuture[R, E]) handle(_ context.Context, entry E, cause error) {
+func (composite *compositeFuture[R, E]) handle(_ context.Context, value E, err error) {
 	composite.ch <- result[E]{
-		entry: entry,
-		cause: cause,
+		value: value,
+		err:   err,
 	}
 	composite.locker.Lock()
 	composite.size--

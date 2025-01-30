@@ -2,7 +2,6 @@ package async
 
 import (
 	"context"
-	"errors"
 )
 
 // Awaitable
@@ -14,15 +13,15 @@ type Awaitable[R any] interface {
 }
 
 func AwaitableFuture[R any](future Future[R]) (af Awaitable[R]) {
-	ch := make(chan result[R], 1)
-	var handler ResultHandler[R] = func(ctx context.Context, r R, cause error) {
-		if errors.Is(cause, EOF) {
+	ch := make(chan Result[R], 1)
+	var handler ResultHandler[R] = func(ctx context.Context, r R, err error) {
+		if IsCanceled(err) {
 			close(ch)
 			return
 		}
 		ch <- result[R]{
-			entry: r,
-			cause: cause,
+			value: r,
+			err:   err,
 		}
 	}
 	future.OnComplete(handler)
@@ -35,15 +34,15 @@ func AwaitableFuture[R any](future Future[R]) (af Awaitable[R]) {
 
 type awaitableFuture[R any] struct {
 	future Future[R]
-	ch     chan result[R]
+	ch     chan Result[R]
 }
 
 func (af *awaitableFuture[R]) Await() (r R, err error) {
 	ar, ok := <-af.ch
 	if !ok {
-		err = EOF
+		err = Canceled
 		return
 	}
-	r, err = ar.entry, ar.cause
+	r, err = ar.Value(), ar.Error()
 	return
 }
