@@ -44,8 +44,16 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 	for _, m := range s.members {
 		m.OnComplete(func(ctx context.Context, entry R, cause error) {
 			if cause != nil {
-				if IsCanceled(cause) || IsExecutorsClosed(cause) || IsUnexpectedContextFailed(cause) {
+				if IsCanceled(cause) {
 					s.alive.Add(-1)
+					if s.alive.Load() == 0 {
+						if s.errInterceptor != nil {
+							s.errInterceptor.Handle(ctx, entry, cause).OnComplete(handler)
+						} else {
+							handler(ctx, entry, cause)
+						}
+					}
+					return
 				}
 				if s.errInterceptor != nil {
 					s.errInterceptor.Handle(ctx, entry, cause).OnComplete(handler)
