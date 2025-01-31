@@ -22,7 +22,7 @@ type Barrier[R any] interface {
 	// Forget
 	// 遗忘结果，因会自动 Forget，所以无需在有效逻辑里使用。
 	// 建议在 Do 的返回值 Future 中执行 Forget，而不是在 fn 中执行。
-	// 不建议作为关闭 stream 来使用，关闭 stream 在 fn 里执行。
+	// 如果在 fn 中执行 Forget，会等同于 Promise.Cancel。
 	Forget(key string)
 }
 

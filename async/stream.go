@@ -7,7 +7,7 @@ func IsStreamFuture[T any](future Future[T]) bool {
 		return false
 	}
 	impl := future.(*futureImpl[T])
-	stream := impl.stream
+	stream := impl.size() > 1
 	return stream
 }
 
@@ -18,6 +18,6 @@ func IsStreamPromise[T any](promise Promise[T]) bool {
 		return false
 	}
 	impl := promise.(*futureImpl[T])
-	stream := impl.stream
+	stream := impl.size() > 1
 	return stream
 }

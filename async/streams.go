@@ -171,14 +171,8 @@ func (ss *streamPromises[R]) Cancel() {
 	return
 }
 
-func (ss *streamPromises[R]) WithErrInterceptor(v ErrInterceptor[R]) Promise[R] {
+func (ss *streamPromises[R]) SetErrInterceptor(v ErrInterceptor[R]) {
 	ss.errInterceptor = v
-	return ss
-}
-
-func (ss *streamPromises[R]) SetResultChan(ch chan Result[R]) (err error) {
-	err = errors.New("async.Promise: can not SetResultChan called on a async.StreamPromises")
-	return
 }
 
 func (ss *streamPromises[R]) Future() (future Future[R]) {

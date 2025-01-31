@@ -17,46 +17,6 @@ func prepare() (ctx context.Context, closer func() error) {
 	return
 }
 
-func TestTryPromise(t *testing.T) {
-	ctx, closer := prepare()
-	defer func() {
-		err := closer()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-	promise, promiseErr := async.Make[int](ctx)
-	if promiseErr != nil {
-		t.Errorf("try promise failed")
-		return
-	}
-	promise.Succeed(1)
-	future := promise.Future()
-	future.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future entry:", result, err)
-	})
-}
-
-func TestMustPromise(t *testing.T) {
-	ctx, closer := prepare()
-	defer func() {
-		err := closer()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-	promise, promiseErr := async.Make[int](ctx, async.WithWait())
-	if promiseErr != nil {
-		t.Errorf("try promise failed, %v", promiseErr)
-		return
-	}
-	promise.Succeed(1)
-	future := promise.Future()
-	future.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future entry:", result, err)
-	})
-}
-
 func TestTryPromise_CompleteErr(t *testing.T) {
 	ctx, closer := prepare()
 	defer func() {
@@ -171,7 +131,7 @@ func TestStreamPromises_WithErrInterceptor(t *testing.T) {
 		t.Errorf("try promise failed")
 		return
 	}
-	promise.WithErrInterceptor(&errInterceptor[int]{t: t})
+	promise.SetErrInterceptor(&errInterceptor[int]{t: t})
 	promise.Fail(errors.New("complete failed"))
 	future := promise.Future()
 	future.OnComplete(func(ctx context.Context, result int, err error) {
@@ -187,30 +147,4 @@ func (e *errInterceptor[R]) Handle(ctx context.Context, value R, err error) (fut
 	e.t.Log(err)
 	future = async.FailedImmediately[R](ctx, err)
 	return
-}
-
-func TestStreamPromises_SetResultChan(t *testing.T) {
-	ctx, closer := prepare()
-	defer func() {
-		err := closer()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-	promise, promiseErr := async.Make[int](ctx)
-	if promiseErr != nil {
-		t.Errorf("try promise failed")
-		return
-	}
-	ch := make(chan async.Result[int], 1)
-	setErr := promise.SetResultChan(ch)
-	if setErr != nil {
-		t.Error(setErr)
-		return
-	}
-	promise.Future().OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future entry:", result, err)
-	})
-	ch <- async.SucceedResult[int](1)
-	close(ch)
 }

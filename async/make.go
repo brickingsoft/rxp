@@ -35,18 +35,21 @@ type Option func(*Options)
 //
 // 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func WithStream() Option {
-	return WithStreamAndBuffer(64)
+	return WithStreamAndChanBuffer(defaultStreamChannelSize)
 }
 
-// WithStreamAndBuffer
+// WithStreamAndChanBuffer
 // 流式许诺
-func WithStreamAndBuffer(buffer int) Option {
+//
+// 无限流的特性是可以无限次完成许诺，而不是一次。
+//
+// 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
+func WithStreamAndChanBuffer(buf int) Option {
 	return func(o *Options) {
-		o.Stream = true
-		if buffer <= 0 {
-			buffer = 1
+		if buf < 1 {
+			buf = 1
 		}
-		o.BufferSize = buffer
+		o.StreamBuffer = buf
 	}
 }
 
@@ -139,9 +142,8 @@ func WithOptions(ctx context.Context, options ...Option) context.Context {
 		Mode:        Normal,
 		WaitTimeout: 0,
 		FutureOptions: FutureOptions{
-			Stream:     false,
-			BufferSize: 0,
-			Timeout:    0,
+			StreamBuffer: 1,
+			Timeout:      0,
 		},
 	}
 	for _, o := range options {
@@ -157,9 +159,8 @@ func getOptions(ctx context.Context) Options {
 			Mode:        Normal,
 			WaitTimeout: 0,
 			FutureOptions: FutureOptions{
-				Stream:     false,
-				BufferSize: 0,
-				Timeout:    0,
+				StreamBuffer: 1,
+				Timeout:      0,
 			},
 		}
 	}

@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"io"
 )
 
 // Void
@@ -15,26 +16,6 @@ type Result[E any] interface {
 	Value() E
 	// Error 错误
 	Error() error
-}
-
-func SucceedResult[E any](v E) Result[E] {
-	return &result[E]{
-		value: v,
-		err:   nil,
-	}
-}
-
-func FailedResult[E any](err error) Result[E] {
-	return &result[E]{
-		err: err,
-	}
-}
-
-func NewResult[E any](v E, err error) Result[E] {
-	return &result[E]{
-		value: v,
-		err:   err,
-	}
 }
 
 type result[E any] struct {
@@ -68,4 +49,20 @@ type ErrInterceptor[R any] interface {
 
 type Closer interface {
 	Close() (future Future[Void])
+}
+
+func tryCloseCloser(v any) {
+	if v == nil {
+		return
+	}
+	switch closer := v.(type) {
+	case io.Closer:
+		_ = closer.Close()
+		break
+	case Closer:
+		closer.Close().OnComplete(DiscardVoidHandler)
+		break
+	default:
+		break
+	}
 }

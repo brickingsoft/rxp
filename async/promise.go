@@ -71,12 +71,9 @@ type Promise[R any] interface {
 	// Cancel
 	// 取消许诺，未来会是一个 Canceled 错误。
 	Cancel()
-	// WithErrInterceptor
+	// SetErrInterceptor
 	// 设置错误拦截器，必须在 Complete， Succeed， Fail， Cancel 和 Future.OnComplete 前。
-	WithErrInterceptor(v ErrInterceptor[R]) Promise[R]
-	// SetResultChan
-	// 设置结果频道，必须在 Future.OnComplete ，当设置时，不能使用 Complete， Succeed， Fail， Cancel。而是由频道负责结果。
-	SetResultChan(ch chan Result[R]) (err error)
+	SetErrInterceptor(v ErrInterceptor[R])
 	// Future
 	// 未来
 	//
