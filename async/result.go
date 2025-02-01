@@ -2,7 +2,6 @@ package async
 
 import (
 	"context"
-	"io"
 )
 
 // Void
@@ -43,26 +42,10 @@ type ResultHandler[R any] func(ctx context.Context, result R, err error)
 
 var DiscardVoidHandler ResultHandler[Void] = func(_ context.Context, _ Void, _ error) {}
 
-type ErrInterceptor[R any] interface {
-	Handle(ctx context.Context, value R, err error) (future Future[R])
-}
+// ErrInterceptor
+// 错误拦截器
+type ErrInterceptor[R any] func(ctx context.Context, value R, err error) (future Future[R])
 
-type Closer interface {
-	Close() (future Future[Void])
-}
-
-func tryCloseCloser(v any) {
-	if v == nil {
-		return
-	}
-	switch closer := v.(type) {
-	case io.Closer:
-		_ = closer.Close()
-		break
-	case Closer:
-		closer.Close().OnComplete(DiscardVoidHandler)
-		break
-	default:
-		break
-	}
-}
+// UnhandledResultHandler
+// 处理未处理的结果
+type UnhandledResultHandler[R any] func(value R)

@@ -35,9 +35,8 @@ func JoinStreamFutures[R any](members []Future[R]) Future[R] {
 }
 
 type streamFutures[R any] struct {
-	members        []Future[R]
-	alive          *atomic.Int64
-	errInterceptor ErrInterceptor[R]
+	members []Future[R]
+	alive   *atomic.Int64
 }
 
 func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
@@ -47,19 +46,11 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 				if IsCanceled(cause) {
 					s.alive.Add(-1)
 					if s.alive.Load() == 0 {
-						if s.errInterceptor != nil {
-							s.errInterceptor.Handle(ctx, entry, cause).OnComplete(handler)
-						} else {
-							handler(ctx, entry, cause)
-						}
+						handler(ctx, entry, cause)
 					}
 					return
 				}
-				if s.errInterceptor != nil {
-					s.errInterceptor.Handle(ctx, entry, cause).OnComplete(handler)
-				} else {
-					handler(ctx, entry, cause)
-				}
+				handler(ctx, entry, cause)
 				return
 			}
 			handler(ctx, entry, cause)
@@ -101,14 +92,15 @@ func StreamPromises[R any](ctx context.Context, size int, options ...Option) (v 
 }
 
 type streamPromises[R any] struct {
-	ctx            context.Context
-	members        []Promise[R]
-	index          int
-	size           int
-	alive          *atomic.Int64
-	canceled       bool
-	locker         sync.Locker
-	errInterceptor ErrInterceptor[R]
+	ctx                    context.Context
+	members                []Promise[R]
+	index                  int
+	size                   int
+	alive                  *atomic.Int64
+	canceled               bool
+	locker                 sync.Locker
+	errInterceptor         ErrInterceptor[R]
+	unhandledResultHandler UnhandledResultHandler[R]
 }
 
 func (ss *streamPromises[R]) ko() bool {
@@ -175,15 +167,24 @@ func (ss *streamPromises[R]) SetErrInterceptor(v ErrInterceptor[R]) {
 	ss.errInterceptor = v
 }
 
+func (ss *streamPromises[R]) SetUnhandledResultHandler(handler UnhandledResultHandler[R]) {
+	ss.unhandledResultHandler = handler
+}
+
 func (ss *streamPromises[R]) Future() (future Future[R]) {
 	futures := make([]Future[R], 0, len(ss.members))
 	for _, m := range ss.members {
+		if ss.errInterceptor != nil {
+			m.SetErrInterceptor(ss.errInterceptor)
+		}
+		if ss.unhandledResultHandler != nil {
+			m.SetUnhandledResultHandler(ss.unhandledResultHandler)
+		}
 		futures = append(futures, m.Future())
 	}
 	future = &streamFutures[R]{
-		members:        futures,
-		alive:          ss.alive,
-		errInterceptor: ss.errInterceptor,
+		members: futures,
+		alive:   ss.alive,
 	}
 	return
 }

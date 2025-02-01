@@ -131,20 +131,14 @@ func TestStreamPromises_WithErrInterceptor(t *testing.T) {
 		t.Errorf("try promise failed")
 		return
 	}
-	promise.SetErrInterceptor(&errInterceptor[int]{t: t})
+	promise.SetErrInterceptor(func(ctx context.Context, value int, err error) (future async.Future[int]) {
+		t.Log(err)
+		future = async.FailedImmediately[int](ctx, err)
+		return
+	})
 	promise.Fail(errors.New("complete failed"))
 	future := promise.Future()
 	future.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future entry:", result, err)
 	})
-}
-
-type errInterceptor[R any] struct {
-	t *testing.T
-}
-
-func (e *errInterceptor[R]) Handle(ctx context.Context, value R, err error) (future async.Future[R]) {
-	e.t.Log(err)
-	future = async.FailedImmediately[R](ctx, err)
-	return
 }

@@ -235,7 +235,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 				break
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				err = newUnexpectedContextError(ctx)
+				err = &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}
 				break
 			}
 			if !exec.Running() {

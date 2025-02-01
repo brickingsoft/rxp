@@ -160,16 +160,16 @@ func (c *channel) size() int {
 	return cap(c.ch)
 }
 
+func (c *channel) remain() int {
+	return len(c.ch)
+}
+
 func (c *channel) setTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
-func (c *channel) cleanWhenUnexpectedErrorOccur() {
-	chLen := len(c.ch)
-	for i := 0; i < chLen; i++ {
-		v := <-c.ch
-		tryCloseCloser(v)
-	}
+func (c *channel) get() any {
+	return <-c.ch
 }
 
 func (c *channel) receive(ctx context.Context) (v any, err error) {
@@ -185,7 +185,6 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		case <-ctx.Done():
 			c.end()
 			err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
-			c.cleanWhenUnexpectedErrorOccur()
 			break
 		}
 	} else {
@@ -207,7 +206,6 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		case <-ctx.Done():
 			c.end()
 			err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
-			c.cleanWhenUnexpectedErrorOccur()
 			break
 		}
 		releaseTimer(timer)

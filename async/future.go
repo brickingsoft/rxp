@@ -39,10 +39,25 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, opts Fut
 
 type futureImpl[R any] struct {
 	*channel
-	ctx            context.Context
-	submitter      rxp.TaskSubmitter
-	handler        ResultHandler[R]
-	errInterceptor ErrInterceptor[R]
+	ctx                    context.Context
+	submitter              rxp.TaskSubmitter
+	handler                ResultHandler[R]
+	errInterceptor         ErrInterceptor[R]
+	unhandledResultHandler UnhandledResultHandler[R]
+}
+
+func (f *futureImpl[R]) handleUnhandledResult() {
+	if remain := f.remain(); remain > 0 {
+		for i := 0; i < remain; i++ {
+			v := f.get()
+			if v != nil && f.unhandledResultHandler != nil {
+				r, ok := v.(result[R])
+				if ok {
+					f.unhandledResultHandler(r.value)
+				}
+			}
+		}
+	}
 }
 
 func (f *futureImpl[R]) handle() {
@@ -51,7 +66,7 @@ func (f *futureImpl[R]) handle() {
 		e, err := f.receive(ctx)
 		if err != nil {
 			if f.errInterceptor != nil {
-				f.errInterceptor.Handle(ctx, *(new(R)), err).OnComplete(f.handler)
+				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
 			} else {
 				f.handler(f.ctx, *(new(R)), err)
 			}
@@ -65,7 +80,7 @@ func (f *futureImpl[R]) handle() {
 		if !ok {
 			err = errors.Join(Canceled, errors.New("type of result is unexpected"))
 			if f.errInterceptor != nil {
-				f.errInterceptor.Handle(ctx, *(new(R)), err).OnComplete(f.handler)
+				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
 			} else {
 				f.handler(f.ctx, *(new(R)), err)
 			}
@@ -74,8 +89,8 @@ func (f *futureImpl[R]) handle() {
 		}
 		rVal := r.Value()
 		rErr := r.Error()
-		if f.errInterceptor != nil {
-			f.errInterceptor.Handle(ctx, rVal, rErr).OnComplete(f.handler)
+		if rErr != nil && f.errInterceptor != nil {
+			f.errInterceptor(ctx, rVal, rErr).OnComplete(f.handler)
 		} else {
 			f.handler(f.ctx, rVal, rErr)
 		}
@@ -87,6 +102,9 @@ func (f *futureImpl[R]) handle() {
 			break
 		}
 	}
+	// try unhandled
+	f.handleUnhandledResult()
+	// release
 	releaseChannel(f.channel)
 }
 
@@ -101,14 +119,17 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	}
 	f.handler = handler
 	if ok := f.submitter.Submit(f.handle); !ok {
+		// close
+		f.end()
+		// try unhandled
+		f.handleUnhandledResult()
+		// handle
 		err := errors.Join(Canceled, ExecutorsClosed)
 		if f.errInterceptor != nil {
-			f.errInterceptor.Handle(f.ctx, *(new(R)), err).OnComplete(f.handler)
+			f.errInterceptor(f.ctx, *(new(R)), err).OnComplete(f.handler)
 		} else {
 			f.handler(f.ctx, *(new(R)), err)
 		}
-		f.end()
-		f.cleanWhenUnexpectedErrorOccur()
 		return
 	}
 	return
@@ -131,8 +152,12 @@ func (f *futureImpl[R]) Cancel() {
 	f.disableSend()
 }
 
-func (f *futureImpl[R]) SetErrInterceptor(v ErrInterceptor[R]) {
-	f.errInterceptor = v
+func (f *futureImpl[R]) SetErrInterceptor(interceptor ErrInterceptor[R]) {
+	f.errInterceptor = interceptor
+}
+
+func (f *futureImpl[R]) SetUnhandledResultHandler(handler UnhandledResultHandler[R]) {
+	f.unhandledResultHandler = handler
 }
 
 func (f *futureImpl[R]) Future() Future[R] {

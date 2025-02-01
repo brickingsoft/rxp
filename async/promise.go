@@ -28,7 +28,20 @@ func IsExecutorsClosed(err error) bool {
 // IsUnexpectedContextFailed
 // 是否为 UnexpectedContextFailed 错误，指 context.Context 完成了但没有错误。
 func IsUnexpectedContextFailed(err error) bool {
-	return errors.Is(err, UnexpectedContextFailed)
+	if errors.Is(err, UnexpectedContextFailed) {
+		return true
+	}
+	var v *UnexpectedContextError
+	if errors.As(err, &v) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	return false
 }
 
 // IsCanceled
@@ -45,7 +58,11 @@ func IsCanceled(err error) bool {
 // 是否为 DeadlineExceeded 错误，指超时或 context.Context 超时。
 // stream 不会关闭。非 stream 会关闭，所以还有一个 Canceled。
 func IsDeadlineExceeded(err error) bool {
-	return errors.Is(err, DeadlineExceeded)
+	if errors.Is(err, DeadlineExceeded) {
+		return true
+	}
+	var v *DeadlineExceededError
+	return errors.As(err, &v)
 }
 
 // IsBusy
@@ -74,15 +91,15 @@ type Promise[R any] interface {
 	// SetErrInterceptor
 	// 设置错误拦截器，必须在 Complete， Succeed， Fail， Cancel 和 Future.OnComplete 前。
 	SetErrInterceptor(v ErrInterceptor[R])
+	// SetUnhandledResultHandler
+	// 设置未处理结果的处理器，必须在 Complete， Succeed， Fail， Cancel 和 Future.OnComplete 前。
+	// 当 Complete， Succeed， Fail 后。但结果因 ExecutorsClosed 或其它原因未被处理时触发。
+	SetUnhandledResultHandler(handler UnhandledResultHandler[R])
 	// Future
 	// 未来
 	//
 	// 注意：必须调用 Future.OnComplete，否则协程会泄漏。
 	Future() (future Future[R])
-}
-
-func newDeadlineExceededError(deadline time.Time) error {
-	return &DeadlineExceededError{deadline, DeadlineExceeded}
 }
 
 func AsDeadlineExceededError(err error) (*DeadlineExceededError, bool) {
@@ -91,9 +108,15 @@ func AsDeadlineExceededError(err error) (*DeadlineExceededError, bool) {
 	return target, ok
 }
 
+// DeadlineExceededError
+// 超时错误
 type DeadlineExceededError struct {
+	// Deadline
+	// 超时时间
 	Deadline time.Time
-	Err      error
+	// Err
+	// 超时错误，常为 DeadlineExceeded
+	Err error
 }
 
 func (e *DeadlineExceededError) Error() string {
@@ -102,19 +125,23 @@ func (e *DeadlineExceededError) Error() string {
 
 func (e *DeadlineExceededError) Unwrap() error { return e.Err }
 
-func newUnexpectedContextError(ctx context.Context) error {
-	return &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}
-}
-
+// AsUnexpectedContextError
+// 转为 UnexpectedContextError
 func AsUnexpectedContextError(err error) (*UnexpectedContextError, bool) {
 	var target *UnexpectedContextError
 	ok := errors.As(err, &target)
 	return target, ok
 }
 
+// UnexpectedContextError
+// 上下文错误
 type UnexpectedContextError struct {
+	// CtxErr
+	// 值为 context.Context 的 Err()
 	CtxErr error
-	Err    error
+	// Err
+	// 错误，常为 UnexpectedContextFailed
+	Err error
 }
 
 func (e *UnexpectedContextError) Error() string {

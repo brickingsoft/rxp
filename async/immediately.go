@@ -24,6 +24,17 @@ func FailedImmediately[R any](ctx context.Context, cause error) (f Future[R]) {
 	return
 }
 
+// Immediately
+// 立刻的未来
+func Immediately[R any](ctx context.Context, r R, cause error) (f Future[R]) {
+	f = &immediatelyFuture[R]{
+		ctx:   ctx,
+		r:     r,
+		cause: cause,
+	}
+	return
+}
+
 type immediatelyFuture[R any] struct {
 	ctx   context.Context
 	r     R
