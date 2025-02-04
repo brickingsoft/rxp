@@ -5,24 +5,21 @@ import (
 	"github.com/brickingsoft/rxp"
 )
 
+var directSubmitterInstance = new(directSubmitter)
+
 type directSubmitter struct {
-	ctx context.Context
 }
 
-func (submitter *directSubmitter) Submit(task rxp.Task) (ok bool) {
-	ctx := submitter.ctx
+func (submitter *directSubmitter) Submit(ctx context.Context, task rxp.Task) (ok bool) {
 	exec, has := rxp.TryFrom(ctx)
 	if !has {
-		submitter.ctx = nil
 		return
 	}
 	err := exec.DirectExecute(ctx, task)
-	submitter.ctx = nil
 	ok = err == nil
 	return
 }
 
 func (submitter *directSubmitter) Cancel() {
-	submitter.ctx = nil
 	return
 }

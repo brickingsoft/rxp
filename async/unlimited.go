@@ -5,24 +5,20 @@ import (
 	"github.com/brickingsoft/rxp"
 )
 
-type unlimitedSubmitter struct {
-	ctx context.Context
-}
+var unlimitedSubmitterInstance = new(unlimitedSubmitter)
 
-func (submitter *unlimitedSubmitter) Submit(task rxp.Task) (ok bool) {
-	ctx := submitter.ctx
+type unlimitedSubmitter struct{}
+
+func (submitter *unlimitedSubmitter) Submit(ctx context.Context, task rxp.Task) (ok bool) {
 	exec, has := rxp.TryFrom(ctx)
 	if !has {
-		submitter.ctx = nil
 		return
 	}
 	err := exec.UnlimitedExecute(ctx, task)
-	submitter.ctx = nil
 	ok = err == nil
 	return
 }
 
 func (submitter *unlimitedSubmitter) Cancel() {
-	submitter.ctx = nil
 	return
 }
