@@ -2,27 +2,81 @@ package rxp_test
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rxp"
 	"math/rand"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
-func RandTask() {
+func RandTask(_ context.Context) {
 	rand.Float64()
 }
 
 func TestExecutors_TryExecute(t *testing.T) {
-	ctx := context.Background()
+	tasks := 100
+	counter := new(atomic.Int64)
 	executors := rxp.New()
+	ctx := executors.Context()
 	defer func(executors rxp.Executors) {
-		err := executors.CloseGracefully()
+		err := executors.Close()
 		if err != nil {
 			t.Fatal(err)
+			return
 		}
+		t.Log("goroutines", executors.Goroutines())
+		t.Log("executed", counter.Load(), counter.Load() == int64(tasks))
 	}(executors)
-	executors.TryExecute(ctx, RandTask)
+	submitted := 0
+	for i := 0; i < tasks; i++ {
+		if executors.TryExecute(ctx, func(ctx context.Context) {
+			counter.Add(1)
+		}) {
+			submitted++
+		}
+	}
+	t.Log("submitted", submitted)
 	t.Log("goroutines", executors.Goroutines())
+	t.Log("done", executors.Goroutines())
+}
+
+func TestExecutors_CloseTimeout(t *testing.T) {
+	tasks := 100
+	counter := new(atomic.Int64)
+	executors := rxp.New(rxp.WithCloseTimeout(time.Second))
+	ctx := executors.Context()
+	defer func(executors rxp.Executors) {
+		err := executors.Close()
+		if err != nil {
+			t.Log("executed", counter.Load(), counter.Load() == int64(tasks))
+			if errors.Is(err, context.DeadlineExceeded) {
+				t.Log(err)
+				return
+			}
+			t.Fatal(err)
+			return
+		}
+		t.Log("goroutines", executors.Goroutines())
+		t.Log("executed", counter.Load(), counter.Load() == int64(tasks))
+	}(executors)
+	submitted := 0
+	for i := 0; i < tasks; i++ {
+		if executors.TryExecute(ctx, func(ctx context.Context) {
+			time.Sleep(time.Second * 2)
+			select {
+			case <-ctx.Done():
+				break
+			default:
+				counter.Add(1)
+			}
+		}) {
+			submitted++
+		}
+	}
+	t.Log("submitted", submitted)
+	t.Log("goroutines", executors.Goroutines())
+	t.Log("done", executors.Goroutines())
 }
 
 // BenchmarkExecutors_Execute
@@ -35,7 +89,7 @@ func TestExecutors_TryExecute(t *testing.T) {
 func BenchmarkExecutors_Execute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
-	ctx := context.Background()
+	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -47,7 +101,7 @@ func BenchmarkExecutors_Execute(b *testing.B) {
 		}
 	})
 
-	err := executors.CloseGracefully()
+	err := executors.Close()
 	if err != nil {
 		b.Error(err)
 	}
@@ -64,7 +118,7 @@ func BenchmarkExecutors_Execute(b *testing.B) {
 func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
-	ctx := context.Background()
+	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -75,7 +129,7 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 			}
 		}
 	})
-	err := executors.CloseGracefully()
+	err := executors.Close()
 	if err != nil {
 		b.Error(err)
 	}
@@ -92,7 +146,7 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 func BenchmarkTryExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
-	ctx := context.Background()
+	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -101,7 +155,7 @@ func BenchmarkTryExecute(b *testing.B) {
 			failed.Add(1)
 		}
 	}
-	err := executors.CloseGracefully()
+	err := executors.Close()
 	if err != nil {
 		b.Error(err)
 	}
@@ -118,7 +172,7 @@ func BenchmarkTryExecute(b *testing.B) {
 func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
-	ctx := context.Background()
+	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -129,7 +183,7 @@ func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
 			}
 		}
 	})
-	err := executors.CloseGracefully()
+	err := executors.Close()
 	if err != nil {
 		b.Error(err)
 	}
@@ -146,7 +200,7 @@ func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
 func BenchmarkExecutors_DirectExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
-	ctx := context.Background()
+	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -157,7 +211,7 @@ func BenchmarkExecutors_DirectExecute(b *testing.B) {
 			}
 		}
 	})
-	err := executors.CloseGracefully()
+	err := executors.Close()
 	if err != nil {
 		b.Error(err)
 	}

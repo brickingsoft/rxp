@@ -37,6 +37,9 @@ const (
 //
 // 当 goroutine 在 MaxGoroutineIdleDuration 后没有新任务，则会释放。
 type Executors interface {
+	// Context
+	// 根上下文，。
+	Context() context.Context
 	// TryExecute
 	// 尝试执行一个任务，如果 goroutine 已满载，则返回 false。
 	TryExecute(ctx context.Context, task Task) (ok bool)
@@ -60,9 +63,6 @@ type Executors interface {
 	// Running
 	// 是否运行中
 	Running() bool
-	// NotifyClose
-	// 通知关闭
-	NotifyClose() <-chan struct{}
 	// TryGetTaskSubmitter
 	// 尝试获取一个 TaskSubmitter
 	//
@@ -72,25 +72,18 @@ type Executors interface {
 	// 如果提交失败则会自动释放。
 	TryGetTaskSubmitter() (submitter TaskSubmitter, has bool)
 	// Close
-	// 关闭
-	//
-	// 此关闭不会等待正在运行的或提交后的任务结束。
-	// 如果需要等待，则使用 CloseGracefully。
-	//
-	// 如果在创建时通过 WithCloseTimeout 设定了关闭超时，则会自动使用 CloseGracefully 进行关闭。
-	Close() (err error)
-	// CloseGracefully
 	// 优雅关闭
 	//
-	// 此关闭会等待正在运行的或提交后的任务结束。
-	// 如果在创建时通过 WithCloseTimeout 设定了关闭超时，则在超时后退出关闭过程。
-	CloseGracefully() (err error)
+	// 此关会等待正在运行的或提交后的任务结束。
+	// 如果需要关闭超时，则使用 WithCloseTimeout 进行设置，当超时后，未结束的 Task 中的 context.Context 是已取消的。
+	Close() (err error)
 }
 
 // New
 // 创建执行池
 func New(options ...Option) Executors {
 	opts := Options{
+		Ctx:                            nil,
 		MaxprocsOptions:                maxprocs.Options{},
 		MaxGoroutines:                  defaultMaxGoroutines,
 		MaxReadyGoroutinesIdleDuration: defaultMaxReadyGoroutinesIdleDuration,
@@ -110,7 +103,15 @@ func New(options ...Option) Executors {
 		panic(fmt.Errorf("rxp: new executors failed, %v", procsErr))
 		return nil
 	}
+	rootCtx := opts.Ctx
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(rootCtx)
+
 	exec := &executors{
+		ctx:                            nil,
+		ctxCancel:                      cancel,
 		maxGoroutines:                  int64(opts.MaxGoroutines),
 		maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
 		locker:                         spin.New(),
@@ -118,16 +119,17 @@ func New(options ...Option) Executors {
 		ready:                          nil,
 		submitters:                     sync.Pool{},
 		goroutines:                     counter.New(),
-		stopCh:                         nil,
-		stopTimeout:                    opts.CloseTimeout,
-		notifyClose:                    nil,
+		closeTimeout:                   opts.CloseTimeout,
 		undo:                           undo,
 	}
+	exec.ctx = With(ctx, exec)
 	exec.start()
 	return exec
 }
 
 type executors struct {
+	ctx                            context.Context
+	ctxCancel                      context.CancelFunc
 	maxGoroutines                  int64
 	maxReadyGoroutinesIdleDuration time.Duration
 	locker                         sync.Locker
@@ -135,10 +137,12 @@ type executors struct {
 	ready                          []*submitterImpl
 	submitters                     sync.Pool
 	goroutines                     *counter.Counter
-	stopCh                         chan struct{}
-	stopTimeout                    time.Duration
-	notifyClose                    chan struct{}
+	closeTimeout                   time.Duration
 	undo                           maxprocs.Undo
+}
+
+func (exec *executors) Context() context.Context {
+	return exec.ctx
 }
 
 func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
@@ -149,14 +153,7 @@ func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
 	if !has {
 		return false
 	}
-	select {
-	case <-ctx.Done():
-		submitter.Cancel()
-		break
-	default:
-		ok = submitter.Submit(task)
-		break
-	}
+	ok = submitter.Submit(ctx, task)
 	return
 }
 
@@ -173,9 +170,6 @@ func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
 	for {
 		ok := exec.TryExecute(ctx, task)
 		if ok {
-			break
-		}
-		if err = ctx.Err(); err != nil {
 			break
 		}
 		if !exec.running.Load() {
@@ -201,14 +195,12 @@ func (exec *executors) UnlimitedExecute(ctx context.Context, task Task) (err err
 		err = ErrClosed
 		return
 	}
-	if err = ctx.Err(); err != nil {
-		return err
-	}
 	exec.goroutines.Incr()
-	go func(task Task, exec *executors) {
-		task()
+
+	go func(ctx context.Context, task Task, exec *executors) {
+		task(ctx)
 		exec.goroutines.Decr()
-	}(task, exec)
+	}(ctx, task, exec)
 
 	return err
 }
@@ -219,14 +211,15 @@ func (exec *executors) DirectExecute(ctx context.Context, task Task) (err error)
 		return
 	}
 	exec.goroutines.Incr()
+
 	if err = exec.goroutines.WaitDownTo(ctx, exec.maxGoroutines); err != nil {
 		exec.goroutines.Decr()
 		return err
 	}
-	go func(task Task, exec *executors) {
-		task()
+	go func(ctx context.Context, task Task, exec *executors) {
+		task(ctx)
 		exec.goroutines.Decr()
-	}(task, exec)
+	}(ctx, task, exec)
 	return err
 }
 
@@ -281,70 +274,54 @@ func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
 }
 
 func (exec *executors) Close() (err error) {
-	if exec.stopTimeout > 0 {
-		err = exec.CloseGracefully()
-		if err != nil {
-			err = errors.Join(ErrCloseFailed, err)
+	if ok := exec.running.CompareAndSwap(true, false); !ok {
+		err = errors.New("rxp: Executor already closed")
+		return
+	}
+
+	defer exec.undo()
+
+	ctx := exec.ctx
+	cancel := exec.ctxCancel
+	defer cancel()
+
+	exec.removeReady()
+
+	if closeTimeout := exec.closeTimeout; closeTimeout > 0 {
+		waitCtx, waitCtxCancel := context.WithTimeout(ctx, closeTimeout)
+		waitErr := exec.goroutines.WaitDownTo(waitCtx, 0)
+		waitCtxCancel()
+		if waitErr != nil {
+			err = errors.Join(ErrCloseFailed, errors.New("close timeout"), waitErr)
 		}
 		return
 	}
-	defer exec.undo()
-	exec.running.Store(false)
-	exec.shutdown()
-	close(exec.notifyClose)
-	return
-}
-
-func (exec *executors) CloseGracefully() (err error) {
-	defer exec.undo()
-	exec.running.Store(false)
-	exec.shutdown()
-	ctx := context.TODO()
-	if exec.stopTimeout == 0 {
-		goroutinesErr := exec.goroutines.WaitDownTo(ctx, 0)
-		if goroutinesErr != nil {
-			err = errors.Join(ErrCloseFailed, goroutinesErr)
-		}
-		close(exec.notifyClose)
+	if waitErr := exec.goroutines.WaitDownTo(ctx, 0); waitErr != nil {
+		err = errors.Join(ErrCloseFailed, errors.New("root context maybe canceled"), waitErr)
 		return
 	}
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithTimeout(ctx, exec.stopTimeout)
-	err = exec.goroutines.WaitDownTo(ctx, 0)
-	if err != nil {
-		cancel()
-		close(exec.notifyClose)
-		err = errors.Join(ErrCloseFailed, err)
-		return
-	}
-	cancel()
-	close(exec.notifyClose)
 	return
-}
-
-func (exec *executors) NotifyClose() <-chan struct{} {
-	return exec.notifyClose
 }
 
 func (exec *executors) start() {
 	exec.running.Store(true)
-	exec.stopCh = make(chan struct{})
-	exec.notifyClose = make(chan struct{}, 1)
 	exec.submitters.New = func() interface{} {
 		return &submitterImpl{
+			closed:      atomic.Bool{},
 			lastUseTime: time.Time{},
-			ch:          make(chan Task, 1),
+			ch:          make(chan taskEntry, 1),
 			exec:        nil,
 		}
 	}
 	go func(exec *executors) {
+		ctx := exec.ctx
 		var scratch []*submitterImpl
 		maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
 		for {
 			select {
-			case <-exec.stopCh:
+			case <-ctx.Done():
 				stopped = true
 				break
 			case <-timer.C:
@@ -393,14 +370,13 @@ func (exec *executors) clean(scratch *[]*submitterImpl) {
 	exec.locker.Unlock()
 
 	tmp := *scratch
-	for iot := range tmp {
-		tmp[iot].stop()
-		tmp[iot] = nil
+	for j := range tmp {
+		tmp[j].stop()
+		tmp[j] = nil
 	}
 }
 
-func (exec *executors) shutdown() {
-	close(exec.stopCh)
+func (exec *executors) removeReady() {
 	exec.locker.Lock()
 	ready := exec.ready
 	for i := range ready {
@@ -427,18 +403,22 @@ func (exec *executors) handle(submitter *submitterImpl) {
 		if submitter == nil {
 			break
 		}
-		task, ok := <-submitter.ch
+		entry, ok := <-submitter.ch
 		if !ok {
 			break
 		}
+		task := entry.task
 		if task == nil {
 			break
 		}
-		task()
+		ctx := exec.ctx
+		task(ctx)
 		if !exec.release(submitter) {
+			submitter.stop()
 			break
 		}
 		if !exec.running.Load() {
+			submitter.stop()
 			break
 		}
 	}
