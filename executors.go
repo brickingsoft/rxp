@@ -2,8 +2,8 @@ package rxp
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"github.com/brickingsoft/rxp/pkg/rate/counter"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
@@ -15,9 +15,9 @@ import (
 
 var (
 	// ErrClosed 执行池已关闭
-	ErrClosed = errors.New("rxp: executors were closed")
+	ErrClosed = errors.Define("rxp: executors were closed")
 	// ErrCloseFailed 关闭执行池失败（一般是关闭超时引发）
-	ErrCloseFailed = errors.New("rxp: executors close failed")
+	ErrCloseFailed = errors.Define("rxp: executors close failed")
 )
 
 // IsClosed
