@@ -13,7 +13,7 @@ func prepare() (ctx context.Context, closer func() error) {
 	ctx = context.Background()
 	executors := rxp.New()
 	ctx = rxp.With(ctx, executors)
-	closer = executors.CloseGracefully
+	closer = executors.Close
 	return
 }
 

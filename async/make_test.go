@@ -48,7 +48,7 @@ func TestCloseAfterMake(t *testing.T) {
 			t.Log("future entry:", result, err, async.IsExecutorsClosed(err))
 			wg.Done()
 		})
-		_ = executors.CloseGracefully()
+		_ = executors.Close()
 		promise.Succeed(1)
 	}(promise, wg)
 
@@ -113,7 +113,7 @@ func BenchmarkMake(b *testing.B) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkMakeDirect
-// BenchmarkMakeDirect-20    	 4062316	       280.1 ns/op	         0 failed	     216 B/op	       6 allocs/op
+// BenchmarkMakeDirect-20    	 3985047	       279.2 ns/op	         0 failed	     216 B/op	       5 allocs/op
 func BenchmarkMakeDirect(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()
@@ -145,7 +145,7 @@ func BenchmarkMakeDirect(b *testing.B) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkMakeUnlimited
-// BenchmarkMakeUnlimited-20    	 4549657	       284.5 ns/op	         0 failed	     214 B/op	       6 allocs/op
+// BenchmarkMakeUnlimited-20    	 4336724	       255.5 ns/op	         0 failed	     216 B/op	       5 allocs/op
 func BenchmarkMakeUnlimited(b *testing.B) {
 	b.ReportAllocs()
 	ctx, closer := prepare()

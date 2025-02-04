@@ -35,16 +35,16 @@ type Option func(*Options)
 //
 // 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func WithStream() Option {
-	return WithStreamAndChanBuffer(defaultStreamChannelSize)
+	return WithStreamAndSize(defaultStreamChannelSize)
 }
 
-// WithStreamAndChanBuffer
+// WithStreamAndSize
 // 流式许诺
 //
 // 无限流的特性是可以无限次完成许诺，而不是一次。
 //
 // 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
-func WithStreamAndChanBuffer(buf int) Option {
+func WithStreamAndSize(buf int) Option {
 	return func(o *Options) {
 		if buf < 1 {
 			buf = 1
@@ -201,10 +201,10 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 	var submitter rxp.TaskSubmitter
 	switch opt.Mode {
 	case Unlimited:
-		submitter = &unlimitedSubmitter{ctx: ctx}
+		submitter = unlimitedSubmitterInstance
 		break
 	case Direct:
-		submitter = &directSubmitter{ctx: ctx}
+		submitter = directSubmitterInstance
 		break
 	case Normal:
 		if opt.WaitTimeout == 0 {
