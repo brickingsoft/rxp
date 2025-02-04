@@ -60,8 +60,7 @@ func (f *futureImpl[R]) handleUnhandledResult() {
 	}
 }
 
-func (f *futureImpl[R]) handle() {
-	ctx := f.ctx
+func (f *futureImpl[R]) handle(ctx context.Context) {
 	for {
 		e, err := f.receive(ctx)
 		if err != nil {
@@ -117,8 +116,9 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		panic(errors.New("async.Future: handler already set"))
 		return
 	}
+	ctx := f.ctx
 	f.handler = handler
-	if ok := f.submitter.Submit(f.handle); !ok {
+	if ok := f.submitter.Submit(ctx, f.handle); !ok {
 		// close
 		f.end()
 		// try unhandled
@@ -126,9 +126,9 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		// handle
 		err := errors.Join(Canceled, ExecutorsClosed)
 		if f.errInterceptor != nil {
-			f.errInterceptor(f.ctx, *(new(R)), err).OnComplete(f.handler)
+			f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
 		} else {
-			f.handler(f.ctx, *(new(R)), err)
+			f.handler(ctx, *(new(R)), err)
 		}
 		return
 	}
