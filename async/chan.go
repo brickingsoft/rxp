@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rxp"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -184,7 +185,15 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 			break
 		case <-ctx.Done():
 			c.end()
-			err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+			if exec, has := rxp.TryFrom(ctx); has {
+				if exec.Running() {
+					err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				} else {
+					err = errors.Join(Canceled, ExecutorsClosed)
+				}
+			} else {
+				err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+			}
 			break
 		}
 	} else {
