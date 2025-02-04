@@ -8,23 +8,21 @@ go get -u github.com/brickingsoft/rxp
 
 ## 使用
 ```go
-ctx := context.Background(rxp.MaxGoroutines(64))
 executors := rxp.New()
-executors.TryExecute(ctx, func() {
+ctx := executors.Context()
+executors.TryExecute(ctx, func(ctx context.Context) {
 	// do something
 })
-err := executors.CloseGracefully()
+err := executors.Close()
 ```
 
 ## 建议
-建议通过 `rxp.With()` 函数来把 `Executors` 关联到 `context.Context` 中。
+使用 `Executors.Context()` 作为全局上下文。
 
-如关联到 `http.Request` 中的 `Context`，这样可以在请求处理中使用 `rxp.TryExecute()` 来执行任务。
-
-同时也可以使用 `async`，这也是 `async` 使用的必要条件。
+例如：在 http 中，通过 `http.Request.WithContext()` 来设置 `Executors.Context()`。
 
 ## 异步
-当关联好`context.Context`后，可以使用 `async` 来异步编程。
+注意：其中的上下文必须是`Executors.Context()`或者通过`rxp.With()`后的。
 ```go
 // 尝试构建一个许诺
 promise, ok := async.Make[int](ctx)
