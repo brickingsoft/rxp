@@ -65,7 +65,7 @@ func (composite *compositeFuture[R, E]) OnComplete(handler ResultHandler[R]) {
 	composite.promise.Future().OnComplete(handler)
 }
 
-func (composite *compositeFuture[R, E]) compose() {
+func (composite *compositeFuture[R, E]) compose(_ context.Context) {
 	for _, member := range composite.members {
 		member.OnComplete(composite.handle)
 	}
