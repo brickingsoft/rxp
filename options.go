@@ -1,6 +1,8 @@
 package rxp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"time"
@@ -18,6 +20,9 @@ type Option func(*Options) error
 // Options
 // 选项
 type Options struct {
+	// Ctx
+	// 根上下文
+	Ctx context.Context
 	// MaxprocsOptions
 	// 最大处理器选项 maxprocs.Options
 	MaxprocsOptions maxprocs.Options
@@ -33,6 +38,18 @@ type Options struct {
 	// CloseTimeout
 	// 关闭超时时长
 	CloseTimeout time.Duration
+}
+
+// WithContext
+// 设置根上下文。
+func WithContext(ctx context.Context) Option {
+	return func(o *Options) error {
+		if ctx == nil {
+			return errors.New("nil context")
+		}
+		o.Ctx = ctx
+		return nil
+	}
 }
 
 // WithMinGOMAXPROCS
