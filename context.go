@@ -2,7 +2,7 @@ package rxp
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 )
 
 type contextKey struct{}
@@ -20,7 +20,7 @@ func With(ctx context.Context, exec Executors) context.Context {
 func From(ctx context.Context) Executors {
 	execs, ok := TryFrom(ctx)
 	if !ok {
-		panic("rxp: there is no executors in context")
+		panic(errors.New("there is no executors in context", errors.WithMeta("rxp", "Executors")))
 		return nil
 	}
 	return execs
@@ -65,7 +65,7 @@ func Execute(ctx context.Context, task Task) (err error) {
 	}
 	exec, ok := TryFrom(ctx)
 	if !ok {
-		return errors.New("rxp: there is no executors in context")
+		return errors.New("there is no executors in context", errors.WithMeta("rxp", "Executors"))
 	}
 	err = exec.Execute(ctx, task)
 	return
