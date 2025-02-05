@@ -20,9 +20,8 @@ type Barrier[R any] interface {
 	// 当第一个 Promise 完成后会自动 Forget。
 	Do(ctx context.Context, key string, fn func(promise Promise[R]), options ...Option) (future Future[R])
 	// Forget
-	// 遗忘结果，因会自动 Forget，所以无需在有效逻辑里使用。
-	// 建议在 Do 的返回值 Future 中执行 Forget，而不是在 fn 中执行。
-	// 如果在 fn 中执行 Forget，会等同于 Promise.Cancel。
+	// 遗忘结果，因会自动 Forget，除非需要手动控制。
+	// 当第一个完成前 Forget，则等同于 Promise.Cancel，所以手动 Forget 的结果是不可控的。
 	Forget(key string)
 }
 
@@ -97,7 +96,6 @@ func (b *barrier[R]) doCall(caller *barrierCaller[R]) {
 		b.locker.Lock()
 		defer b.locker.Unlock()
 		if caller.done {
-			// 被 Forget 了，所以已经 cancel 了，不在执行
 			return
 		}
 		for _, promise := range caller.shared {
@@ -110,18 +108,13 @@ func (b *barrier[R]) doCall(caller *barrierCaller[R]) {
 
 func (b *barrier[R]) Forget(key string) {
 	b.locker.Lock()
-	defer b.locker.Unlock()
 	caller, has := b.callers[key]
 	if !has {
+		b.locker.Unlock()
 		return
 	}
 	delete(b.callers, key)
-	// 存在即意味着 doCall 没执行，则 done 必为 false
-	// 进行 cancel，并 done
+	b.locker.Unlock()
 	caller.origin.Cancel()
-	for _, promise := range caller.shared {
-		promise.Cancel()
-	}
-	caller.done = true
 	return
 }

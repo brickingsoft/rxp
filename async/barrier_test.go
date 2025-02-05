@@ -51,10 +51,9 @@ func TestBarrier_Forget(t *testing.T) {
 		go func(ctx context.Context, barrier async.Barrier[int], wg *sync.WaitGroup, i int) {
 			barrier.Do(ctx, "key", func(promise async.Promise[int]) {
 				promise.Succeed(i)
-				//barrier.Forget("key")
+				barrier.Forget("key")
 			}).OnComplete(func(ctx context.Context, entry int, cause error) {
 				t.Log(entry, cause)
-				barrier.Forget("key")
 				wg.Done()
 			})
 		}(ctx, barrier, wg, i)

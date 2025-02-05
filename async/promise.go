@@ -2,7 +2,7 @@ package async
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"time"
 )
@@ -12,10 +12,10 @@ const (
 )
 
 var (
-	Canceled                = errors.New("async: promise canceled")
-	DeadlineExceeded        = errors.New("async: deadline exceeded")
-	Busy                    = errors.New("async: busy")
-	UnexpectedContextFailed = errors.New("async: unexpected context failed")
+	Canceled                = errors.Define("async: promise canceled")
+	DeadlineExceeded        = errors.Define("async: deadline exceeded")
+	Busy                    = errors.Define("async: busy")
+	UnexpectedContextFailed = errors.Define("async: unexpected context failed")
 	ExecutorsClosed         = rxp.ErrClosed
 )
 

@@ -2,7 +2,7 @@ package async
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"runtime"
 	"time"
@@ -191,7 +191,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 	}
 	exec, has := rxp.TryFrom(ctx)
 	if !has {
-		err = errors.New("async: executable not found")
+		err = errors.New("async: executable not found", errors.WithMeta("rxp", "async"))
 		return
 	}
 	if !exec.Running() {
@@ -227,7 +227,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		times := 10
 		for {
 			submitter = exec.TryGetTaskSubmitter()
-			if submitter == nil {
+			if submitter != nil {
 				break
 			}
 			if waitCtx != nil && waitCtx.Err() != nil {

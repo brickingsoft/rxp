@@ -2,7 +2,7 @@ package async
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"time"
 )
@@ -77,7 +77,7 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 		// handle result
 		r, ok := e.(result[R])
 		if !ok {
-			err = errors.Join(Canceled, errors.New("type of result is unexpected"))
+			err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), errors.New("type of result is unexpected", errors.WithMeta("rxp", "async")))
 			if f.errInterceptor != nil {
 				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
 			} else {
@@ -109,11 +109,11 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	if handler == nil {
-		panic(errors.New("async.Future: handler is nil"))
+		panic(errors.New("async.Future: handler is nil", errors.WithMeta("rxp", "async")))
 		return
 	}
 	if f.handler != nil {
-		panic(errors.New("async.Future: handler already set"))
+		panic(errors.New("async.Future: handler already set", errors.WithMeta("rxp", "async")))
 		return
 	}
 	ctx := f.ctx
@@ -136,8 +136,9 @@ func (f *futureImpl[R]) Fail(err error) bool {
 }
 
 func (f *futureImpl[R]) Cancel() {
-	f.send(result[R]{err: Canceled})
-	f.disableSend()
+	if f.send(result[R]{err: Canceled}) {
+		f.disableSend()
+	}
 }
 
 func (f *futureImpl[R]) SetErrInterceptor(interceptor ErrInterceptor[R]) {

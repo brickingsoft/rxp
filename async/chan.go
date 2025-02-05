@@ -2,7 +2,7 @@ package async
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"runtime"
 	"sync"
@@ -178,7 +178,7 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		select {
 		case r, ok := <-c.ch:
 			if !ok {
-				err = Canceled
+				err = errors.From(Canceled, errors.WithMeta("rxp", "async"))
 				break
 			}
 			v = r
@@ -187,12 +187,12 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 			c.end()
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
-					err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 				} else {
-					err = errors.Join(Canceled, ExecutorsClosed)
+					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), ExecutorsClosed)
 				}
 			} else {
-				err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 			}
 			break
 		}
@@ -201,7 +201,7 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		select {
 		case r, ok := <-c.ch:
 			if !ok {
-				err = Canceled
+				err = errors.From(Canceled, errors.WithMeta("rxp", "async"))
 				break
 			}
 			v = r
@@ -209,19 +209,19 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		case deadline := <-timer.C:
 			err = &DeadlineExceededError{Deadline: deadline, Err: DeadlineExceeded}
 			if c.size() == 1 {
-				err = errors.Join(Canceled, err)
+				err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), err)
 			}
 			break
 		case <-ctx.Done():
 			c.end()
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
-					err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 				} else {
-					err = errors.Join(Canceled, ExecutorsClosed)
+					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), ExecutorsClosed)
 				}
 			} else {
-				err = errors.Join(Canceled, &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 			}
 			break
 		}

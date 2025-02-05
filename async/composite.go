@@ -2,7 +2,7 @@ package async
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
 	"sync"
@@ -17,13 +17,13 @@ import (
 func Composite[R []Result[E], E any](ctx context.Context, promises []Promise[E]) (future Future[R]) {
 	promisesLen := len(promises)
 	if promisesLen == 0 {
-		future = FailedImmediately[R](ctx, errors.New("async: empty promises"))
+		future = FailedImmediately[R](ctx, errors.New("async: empty promises", errors.WithMeta("rxp", "async")))
 		return
 	}
 	members := make([]Future[E], promisesLen)
 	for i, member := range promises {
 		if member == nil {
-			future = FailedImmediately[R](ctx, errors.New("async: one of promises is nil"))
+			future = FailedImmediately[R](ctx, errors.New("async: one of promises is nil", errors.WithMeta("rxp", "async")))
 			return
 		}
 		members[i] = member.Future()
