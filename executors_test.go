@@ -38,7 +38,6 @@ func TestExecutors_TryExecute(t *testing.T) {
 	}
 	t.Log("submitted", submitted)
 	t.Log("goroutines", executors.Goroutines())
-	t.Log("done", executors.Goroutines())
 }
 
 func TestExecutors_CloseTimeout(t *testing.T) {
@@ -108,14 +107,14 @@ func BenchmarkExecutors_Execute(b *testing.B) {
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
 
-// BenchmarkExecutors_TryExecute
+// BenchmarkExecutors_TryExecute_Parallel
 // goos: windows
 // goarch: amd64
 // pkg: github.com/brickingsoft/rxp
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkExecutors_TryExecute
-// BenchmarkExecutors_TryExecute-20    	 2680070	       426.4 ns/op	         0 failed	       0 B/op	       0 allocs/op
-func BenchmarkExecutors_TryExecute(b *testing.B) {
+// BenchmarkExecutors_TryExecute_Parallel
+// BenchmarkExecutors_TryExecute_Parallel-20    	 2670756	       412.1 ns/op	         0 failed	       0 B/op	       0 allocs/op
+func BenchmarkExecutors_TryExecute_Parallel(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
 	ctx := executors.Context()
@@ -136,14 +135,14 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
 
-// BenchmarkTryExecute
+// BenchmarkExecutors_TryExecute
 // goos: windows
 // goarch: amd64
 // pkg: github.com/brickingsoft/rxp
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkTryExecute
-// BenchmarkTryExecute-20    	 2940900	       385.0 ns/op	         0 failed	       0 B/op	       0 allocs/op
-func BenchmarkTryExecute(b *testing.B) {
+// BenchmarkExecutors_TryExecute
+// BenchmarkExecutors_TryExecute-20    	 2940900	       385.0 ns/op	         0 failed	       0 B/op	       0 allocs/op
+func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()
 	ctx := executors.Context()
@@ -196,7 +195,7 @@ func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
 // pkg: github.com/brickingsoft/rxp
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkExecutors_DirectExecute
-// BenchmarkExecutors_DirectExecute-20    	 6159405	       192.1 ns/op	         0 failed	      38 B/op	       1 allocs/op
+// BenchmarkExecutors_DirectExecute-20    	 6532232	       186.2 ns/op	         0 failed	      50 B/op	       1 allocs/op
 func BenchmarkExecutors_DirectExecute(b *testing.B) {
 	b.ReportAllocs()
 	executors := rxp.New()

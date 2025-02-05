@@ -208,8 +208,8 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		break
 	case Normal:
 		if opt.WaitTimeout == 0 {
-			submitter, has = exec.TryGetTaskSubmitter()
-			if !has {
+			submitter = exec.TryGetTaskSubmitter()
+			if submitter == nil {
 				if !exec.Running() {
 					err = ExecutorsClosed
 				} else {
@@ -226,8 +226,8 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		}
 		times := 10
 		for {
-			submitter, has = exec.TryGetTaskSubmitter()
-			if has {
+			submitter = exec.TryGetTaskSubmitter()
+			if submitter == nil {
 				break
 			}
 			if waitCtx != nil && waitCtx.Err() != nil {

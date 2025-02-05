@@ -67,15 +67,14 @@ type Executors interface {
 	// 尝试获取一个 TaskSubmitter
 	//
 	// 如果 goroutine 已满载，则返回 false。
-	// 注意：如果获得后没有提交任务，则需要 TaskSubmitter.Cancel 来释放 TaskSubmitter。
-	// 否则对应的 goroutine 不会被释放。
+	// 注意：如果获得后必须提交任务，否则会 goroutine 会一直占用。
 	// 如果提交失败则会自动释放。
-	TryGetTaskSubmitter() (submitter TaskSubmitter, has bool)
+	TryGetTaskSubmitter() (submitter TaskSubmitter)
 	// Close
 	// 优雅关闭
 	//
 	// 此关会等待正在运行的或提交后的任务结束。
-	// 如果需要关闭超时，则使用 WithCloseTimeout 进行设置，当超时后，未结束的 Task 中的 context.Context 是已取消的。
+	// 如果需要关闭超时，则使用 WithCloseTimeout 进行设置。
 	Close() (err error)
 }
 
@@ -93,7 +92,7 @@ func New(options ...Option) Executors {
 		for _, option := range options {
 			optErr := option(&opts)
 			if optErr != nil {
-				panic(fmt.Errorf("rxp: new executors failed, %v", optErr))
+				panic(errors.New("new executors failed", errors.WithMeta("rxp", "Executors"), errors.WithWrap(optErr)))
 				return nil
 			}
 		}
@@ -138,6 +137,7 @@ type executors struct {
 	submitters                     sync.Pool
 	goroutines                     *counter.Counter
 	closeTimeout                   time.Duration
+	stopCh                         chan struct{}
 	undo                           maxprocs.Undo
 }
 
@@ -145,16 +145,14 @@ func (exec *executors) Context() context.Context {
 	return exec.ctx
 }
 
-func (exec *executors) TryExecute(ctx context.Context, task Task) (ok bool) {
+func (exec *executors) TryExecute(ctx context.Context, task Task) bool {
 	if task == nil || !exec.Available() {
 		return false
 	}
-	submitter, has := exec.TryGetTaskSubmitter()
-	if !has {
-		return false
+	if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
+		submitter.Submit(ctx, task)
 	}
-	ok = submitter.Submit(ctx, task)
-	return
+	return true
 }
 
 func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
@@ -162,14 +160,10 @@ func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
 		err = errors.New("rxp: task is nil")
 		return
 	}
-	if !exec.running.Load() {
-		err = ErrClosed
-		return
-	}
 	times := 10
 	for {
-		ok := exec.TryExecute(ctx, task)
-		if ok {
+		if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
+			submitter.Submit(ctx, task)
 			break
 		}
 		if !exec.running.Load() {
@@ -210,17 +204,23 @@ func (exec *executors) DirectExecute(ctx context.Context, task Task) (err error)
 		err = errors.New("rxp: task is nil")
 		return
 	}
+	if !exec.running.Load() {
+		err = ErrClosed
+		return
+	}
+
 	exec.goroutines.Incr()
 
 	if err = exec.goroutines.WaitDownTo(ctx, exec.maxGoroutines); err != nil {
 		exec.goroutines.Decr()
-		return err
+		return
 	}
+
 	go func(ctx context.Context, task Task, exec *executors) {
 		task(ctx)
 		exec.goroutines.Decr()
 	}(ctx, task, exec)
-	return err
+	return
 }
 
 func (exec *executors) Goroutines() (n int64) {
@@ -236,10 +236,16 @@ func (exec *executors) Running() bool {
 	return exec.running.Load()
 }
 
-func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
+func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter) {
+	if !exec.running.Load() {
+		return
+	}
+
 	var submitter *submitterImpl
 	createExecutor := false
+
 	exec.locker.Lock()
+
 	ready := exec.ready
 	n := len(ready) - 1
 	if n < 0 {
@@ -248,7 +254,6 @@ func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
 		}
 	} else {
 		submitter = ready[n]
-		has = true
 		ready[n] = nil
 		exec.ready = ready[:n]
 	}
@@ -259,12 +264,9 @@ func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter, has bool) {
 		}
 		vch := exec.submitters.Get()
 		submitter = vch.(*submitterImpl)
-		has = true
-		submitter.exec = exec
 		exec.goroutines.Incr()
 		go func(exec *executors, submitter *submitterImpl) {
 			exec.handle(submitter)
-			submitter.exec = nil
 			exec.submitters.Put(submitter)
 			exec.goroutines.Decr()
 		}(exec, submitter)
@@ -281,11 +283,11 @@ func (exec *executors) Close() (err error) {
 
 	defer exec.undo()
 
+	close(exec.stopCh)
+
 	ctx := exec.ctx
 	cancel := exec.ctxCancel
 	defer cancel()
-
-	exec.removeReady()
 
 	if closeTimeout := exec.closeTimeout; closeTimeout > 0 {
 		waitCtx, waitCtxCancel := context.WithTimeout(ctx, closeTimeout)
@@ -305,16 +307,16 @@ func (exec *executors) Close() (err error) {
 
 func (exec *executors) start() {
 	exec.running.Store(true)
+	exec.stopCh = make(chan struct{})
 	exec.submitters.New = func() interface{} {
 		return &submitterImpl{
-			closed:      atomic.Bool{},
 			lastUseTime: time.Time{},
 			ch:          make(chan taskEntry, 1),
-			exec:        nil,
 		}
 	}
 	go func(exec *executors) {
 		ctx := exec.ctx
+		stopCh := exec.stopCh
 		var scratch []*submitterImpl
 		maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 		stopped := false
@@ -322,6 +324,9 @@ func (exec *executors) start() {
 		for {
 			select {
 			case <-ctx.Done():
+				stopped = true
+				break
+			case <-stopCh:
 				stopped = true
 				break
 			case <-timer.C:
@@ -334,19 +339,30 @@ func (exec *executors) start() {
 			}
 		}
 		timer.Stop()
+
+		exec.locker.Lock()
+		ready := exec.ready
+		for i := range ready {
+			ready[i].stop()
+			ready[i] = nil
+		}
+		exec.ready = ready[:0]
+		exec.locker.Unlock()
 	}(exec)
 }
 
 func (exec *executors) clean(scratch *[]*submitterImpl) {
-	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
-	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 	exec.locker.Lock()
-	if !exec.running.Load() {
+	ready := exec.ready
+	n := len(ready)
+	if n == 0 {
 		exec.locker.Unlock()
 		return
 	}
-	ready := exec.ready
-	n := len(ready)
+
+	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
+	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
+
 	l, r, mid := 0, n-1, 0
 	for l <= r {
 		mid = (l + r) / 2
@@ -376,33 +392,23 @@ func (exec *executors) clean(scratch *[]*submitterImpl) {
 	}
 }
 
-func (exec *executors) removeReady() {
-	exec.locker.Lock()
-	ready := exec.ready
-	for i := range ready {
-		ready[i].stop()
-		ready[i] = nil
+func (exec *executors) release(submitter *submitterImpl) (ok bool) {
+	if exec.running.Load() {
+		submitter.lastUseTime = time.Now()
+		exec.locker.Lock()
+		if ok = exec.running.Load(); ok {
+			exec.ready = append(exec.ready, submitter)
+		}
+		exec.locker.Unlock()
 	}
-	exec.ready = ready[:0]
-	exec.locker.Unlock()
-}
-
-func (exec *executors) release(submitter *submitterImpl) bool {
-	if !exec.running.Load() {
-		return false
-	}
-	exec.locker.Lock()
-	submitter.lastUseTime = time.Now()
-	exec.ready = append(exec.ready, submitter)
-	exec.locker.Unlock()
-	return true
+	return
 }
 
 func (exec *executors) handle(submitter *submitterImpl) {
+	if submitter == nil {
+		return
+	}
 	for {
-		if submitter == nil {
-			break
-		}
 		entry, ok := <-submitter.ch
 		if !ok {
 			break
@@ -414,11 +420,6 @@ func (exec *executors) handle(submitter *submitterImpl) {
 		ctx := exec.ctx
 		task(ctx)
 		if !exec.release(submitter) {
-			submitter.stop()
-			break
-		}
-		if !exec.running.Load() {
-			submitter.stop()
 			break
 		}
 	}

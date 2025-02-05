@@ -10,16 +10,11 @@ var directSubmitterInstance = new(directSubmitter)
 type directSubmitter struct {
 }
 
-func (submitter *directSubmitter) Submit(ctx context.Context, task rxp.Task) (ok bool) {
+func (submitter *directSubmitter) Submit(ctx context.Context, task rxp.Task) {
 	exec, has := rxp.TryFrom(ctx)
 	if !has {
 		return
 	}
-	err := exec.DirectExecute(ctx, task)
-	ok = err == nil
-	return
-}
-
-func (submitter *directSubmitter) Cancel() {
+	_ = exec.DirectExecute(ctx, task)
 	return
 }

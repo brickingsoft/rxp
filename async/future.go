@@ -118,20 +118,8 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	}
 	ctx := f.ctx
 	f.handler = handler
-	if ok := f.submitter.Submit(ctx, f.handle); !ok {
-		// close
-		f.end()
-		// try unhandled
-		f.handleUnhandledResult()
-		// handle
-		err := errors.Join(Canceled, ExecutorsClosed)
-		if f.errInterceptor != nil {
-			f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
-		} else {
-			f.handler(ctx, *(new(R)), err)
-		}
-		return
-	}
+	task := f.handle
+	f.submitter.Submit(ctx, task)
 	return
 }
 

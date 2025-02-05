@@ -9,16 +9,11 @@ var unlimitedSubmitterInstance = new(unlimitedSubmitter)
 
 type unlimitedSubmitter struct{}
 
-func (submitter *unlimitedSubmitter) Submit(ctx context.Context, task rxp.Task) (ok bool) {
+func (submitter *unlimitedSubmitter) Submit(ctx context.Context, task rxp.Task) {
 	exec, has := rxp.TryFrom(ctx)
 	if !has {
 		return
 	}
-	err := exec.UnlimitedExecute(ctx, task)
-	ok = err == nil
-	return
-}
-
-func (submitter *unlimitedSubmitter) Cancel() {
+	_ = exec.UnlimitedExecute(ctx, task)
 	return
 }
