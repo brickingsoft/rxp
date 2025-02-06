@@ -116,37 +116,28 @@ func (ss *streamPromises[R]) next() (p Promise[R]) {
 	return
 }
 
-func (ss *streamPromises[R]) Complete(r R, err error) bool {
+func (ss *streamPromises[R]) Complete(r R, err error) (ok bool) {
 	ss.locker.Lock()
 	if ss.ko() {
 		ss.locker.Unlock()
 		return false
 	}
-	ss.next().Complete(r, err)
+	for i := 0; i < ss.size; i++ {
+		member := ss.next()
+		if ok = member.Complete(r, err); ok {
+			break
+		}
+	}
 	ss.locker.Unlock()
-	return true
+	return
 }
 
 func (ss *streamPromises[R]) Succeed(r R) bool {
-	ss.locker.Lock()
-	if ss.ko() {
-		ss.locker.Unlock()
-		return false
-	}
-	ss.next().Succeed(r)
-	ss.locker.Unlock()
-	return true
+	return ss.Complete(r, nil)
 }
 
 func (ss *streamPromises[R]) Fail(cause error) bool {
-	ss.locker.Lock()
-	if ss.ko() {
-		ss.locker.Unlock()
-		return false
-	}
-	ss.next().Fail(cause)
-	ss.locker.Unlock()
-	return true
+	return ss.Complete(*new(R), cause)
 }
 
 func (ss *streamPromises[R]) Cancel() {
