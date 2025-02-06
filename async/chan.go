@@ -6,7 +6,6 @@ import (
 	"github.com/brickingsoft/rxp"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -87,11 +86,9 @@ func acquireChannel(size int) *channel {
 
 func releaseChannel(c *channel) {
 	// reset
-	c.sa.Store(true)
-	c.ra.Store(true)
-	if c.timeout > 0 {
-		c.timeout = 0
-	}
+	c.sendAble = true
+	c.recvAble = true
+	c.timeout = 0
 	// put
 	size := c.size()
 	if size < 2 {
@@ -140,21 +137,21 @@ func releaseChannel(c *channel) {
 
 func newChannel(size int) *channel {
 	c := &channel{
-		ch:      make(chan any, size),
-		sa:      atomic.Bool{},
-		ra:      atomic.Bool{},
-		timeout: 0,
+		ch:       make(chan any, size),
+		lock:     sync.Mutex{},
+		recvAble: true,
+		sendAble: true,
+		timeout:  0,
 	}
-	c.sa.Store(true)
-	c.ra.Store(true)
 	return c
 }
 
 type channel struct {
-	ch      chan any
-	sa      atomic.Bool
-	ra      atomic.Bool
-	timeout time.Duration
+	ch       chan any
+	lock     sync.Mutex
+	recvAble bool
+	sendAble bool
+	timeout  time.Duration
 }
 
 func (c *channel) size() int {
@@ -181,10 +178,13 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 				err = errors.From(Canceled, errors.WithMeta("rxp", "async"))
 				break
 			}
+			if rErr, isErr := r.(error); isErr {
+				err = errors.From(rErr, errors.WithMeta("rxp", "async"))
+				break
+			}
 			v = r
 			break
 		case <-ctx.Done():
-			c.end()
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
 					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
@@ -213,7 +213,6 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 			}
 			break
 		case <-ctx.Done():
-			c.end()
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
 					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
@@ -227,28 +226,54 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		}
 		releaseTimer(timer)
 	}
-	c.tryEnd()
+	if err != nil {
+		if IsCanceled(err) {
+			c.end()
+		}
+	} else {
+		c.tryEnd()
+	}
 	return
 }
 
-func (c *channel) send(v any) (ok bool) {
-	if !c.sa.Load() {
-		return
+func (c *channel) send(v any) bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if !c.sendAble {
+		return false
 	}
 	c.ch <- v
-	ok = true
 	if c.size() == 1 {
-		c.disableSend()
+		c.sendAble = false
 	}
-	return
+	return true
+}
+
+func (c *channel) cancel() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if c.sendAble {
+		c.sendAble = false
+		c.ch <- Canceled
+	}
+}
+
+func (c *channel) canReceive() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.recvAble
+}
+
+func (c *channel) canSend() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.sendAble
 }
 
 func (c *channel) disableSend() {
-	c.sa.CompareAndSwap(true, false)
-}
-
-func (c *channel) disableRecv() {
-	c.ra.CompareAndSwap(true, false)
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.sendAble = false
 }
 
 func (c *channel) tryEnd() {
@@ -258,6 +283,8 @@ func (c *channel) tryEnd() {
 }
 
 func (c *channel) end() {
-	c.disableSend()
-	c.disableRecv()
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.recvAble = false
+	c.sendAble = false
 }

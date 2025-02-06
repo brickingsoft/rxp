@@ -69,14 +69,21 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 			} else {
 				f.handler(f.ctx, *(new(R)), err)
 			}
-			if f.ra.Load() {
+			if f.canReceive() {
 				continue
 			}
 			break
 		}
 		// handle result
-		r, ok := e.(result[R])
-		if !ok {
+		if r, ok := e.(result[R]); ok {
+			rVal := r.Value()
+			rErr := r.Error()
+			if rErr != nil && f.errInterceptor != nil {
+				f.errInterceptor(ctx, rVal, rErr).OnComplete(f.handler)
+			} else {
+				f.handler(f.ctx, rVal, rErr)
+			}
+		} else {
 			err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), errors.New("type of result is unexpected", errors.WithMeta("rxp", "async")))
 			if f.errInterceptor != nil {
 				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
@@ -84,22 +91,11 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 				f.handler(f.ctx, *(new(R)), err)
 			}
 			f.end()
-			break
 		}
-		rVal := r.Value()
-		rErr := r.Error()
-		if rErr != nil && f.errInterceptor != nil {
-			f.errInterceptor(ctx, rVal, rErr).OnComplete(f.handler)
-		} else {
-			f.handler(f.ctx, rVal, rErr)
+		if f.canReceive() {
+			continue
 		}
-		// check canceled
-		if IsCanceled(rErr) {
-			f.end()
-		}
-		if !f.ra.Load() {
-			break
-		}
+		break
 	}
 	// try unhandled
 	f.handleUnhandledResult()
@@ -136,9 +132,7 @@ func (f *futureImpl[R]) Fail(err error) bool {
 }
 
 func (f *futureImpl[R]) Cancel() {
-	if f.send(result[R]{err: Canceled}) {
-		f.disableSend()
-	}
+	f.cancel()
 }
 
 func (f *futureImpl[R]) SetErrInterceptor(interceptor ErrInterceptor[R]) {
