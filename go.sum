@@ -1,4 +1,2 @@
-github.com/brickingsoft/errors v0.1.0 h1:jhcYi/VlOjJ14dSz6o4hv1pJzvYfcyKwHrf9iDmQDXA=
-github.com/brickingsoft/errors v0.1.0/go.mod h1:+ZGtKnPnMv9/XAW7VzispebwortTnSn644MzdshvwnY=
-github.com/brickingsoft/errors v0.2.0 h1:SEUELWgEK7W1RJ6D2fByBi8J2ABQQ47ZPWy/LvYKH+M=
-github.com/brickingsoft/errors v0.2.0/go.mod h1:+ZGtKnPnMv9/XAW7VzispebwortTnSn644MzdshvwnY=
+github.com/brickingsoft/errors v0.3.0 h1:cooMBTTuekrQNWArzhbwaAzR1sCXj864ubEFRp7xUbw=
+github.com/brickingsoft/errors v0.3.0/go.mod h1:+ZGtKnPnMv9/XAW7VzispebwortTnSn644MzdshvwnY=
