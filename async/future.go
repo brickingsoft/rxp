@@ -84,7 +84,7 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 				f.handler(f.ctx, rVal, rErr)
 			}
 		} else {
-			err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), errors.New("type of result is unexpected", errors.WithMeta("rxp", "async")))
+			err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), errors.New("type of result is unexpected", errors.WithMeta("rxp", "async")))
 			if f.errInterceptor != nil {
 				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
 			} else {
@@ -106,11 +106,11 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	if handler == nil {
-		panic(errors.New("async.Future: handler is nil", errors.WithMeta("rxp", "async")))
+		panic(errors.New("handler is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 		return
 	}
 	if f.handler != nil {
-		panic(errors.New("async.Future: handler already set", errors.WithMeta("rxp", "async")))
+		panic(errors.New("handler already set", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 		return
 	}
 	ctx := f.ctx

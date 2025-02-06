@@ -20,7 +20,7 @@ func With(ctx context.Context, exec Executors) context.Context {
 func From(ctx context.Context) Executors {
 	execs, ok := TryFrom(ctx)
 	if !ok {
-		panic(errors.New("there is no executors in context", errors.WithMeta("rxp", "executors")))
+		panic(errors.New("there is no executors in context", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 		return nil
 	}
 	return execs
@@ -65,7 +65,7 @@ func Execute(ctx context.Context, task Task) (err error) {
 	}
 	exec, ok := TryFrom(ctx)
 	if !ok {
-		return errors.New("there is no executors in context", errors.WithMeta("rxp", "executors"))
+		return errors.New("there is no executors in context", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	}
 	err = exec.Execute(ctx, task)
 	return

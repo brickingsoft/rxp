@@ -14,9 +14,9 @@ import (
 
 var (
 	// ErrClosed 执行池已关闭
-	ErrClosed = errors.Define("rxp: executors has been closed")
+	ErrClosed = errors.Define("executors has been closed")
 	// ErrCloseFailed 关闭执行池失败（一般是关闭超时引发）
-	ErrCloseFailed = errors.Define("rxp: executors close failed")
+	ErrCloseFailed = errors.Define("executors close failed")
 )
 
 // IsClosed
@@ -27,6 +27,11 @@ func IsClosed(err error) bool {
 
 const (
 	ns500 = 500 * time.Nanosecond
+)
+
+const (
+	errMetaPkgKey = "pkg"
+	errMetaPkgVal = "rxp"
 )
 
 // Executors
@@ -91,14 +96,14 @@ func New(options ...Option) Executors {
 		for _, option := range options {
 			optErr := option(&opts)
 			if optErr != nil {
-				panic(errors.New("new executors failed", errors.WithMeta("rxp", "executors"), errors.WithWrap(optErr)))
+				panic(errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(optErr)))
 				return nil
 			}
 		}
 	}
 	undo, procsErr := maxprocs.Enable(opts.MaxprocsOptions)
 	if procsErr != nil {
-		panic(errors.New("new executors failed", errors.WithMeta("rxp", "executors"), errors.WithWrap(procsErr)))
+		panic(errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(procsErr)))
 		return nil
 	}
 	rootCtx := opts.Ctx
@@ -156,7 +161,7 @@ func (exec *executors) TryExecute(ctx context.Context, task Task) bool {
 
 func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
 	if task == nil {
-		err = errors.New("rxp: task is nil", errors.WithMeta("rxp", "executors"))
+		err = errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 	times := 10
@@ -181,7 +186,7 @@ func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
 
 func (exec *executors) UnlimitedExecute(ctx context.Context, task Task) (err error) {
 	if task == nil {
-		err = errors.New("rxp: task is nil", errors.WithMeta("rxp", "executors"))
+		err = errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 	if !exec.running.Load() {
@@ -200,7 +205,7 @@ func (exec *executors) UnlimitedExecute(ctx context.Context, task Task) (err err
 
 func (exec *executors) DirectExecute(ctx context.Context, task Task) (err error) {
 	if task == nil {
-		err = errors.New("rxp: task is nil", errors.WithMeta("rxp", "executors"))
+		err = errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 	if !exec.running.Load() {
@@ -276,7 +281,7 @@ func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter) {
 
 func (exec *executors) Close() (err error) {
 	if ok := exec.running.CompareAndSwap(true, false); !ok {
-		err = errors.New("rxp: executors already closed", errors.WithMeta("rxp", "executors"))
+		err = errors.New("executors already closed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 
@@ -293,13 +298,13 @@ func (exec *executors) Close() (err error) {
 		waitErr := exec.goroutines.WaitDownTo(waitCtx, 0)
 		waitCtxCancel()
 		if waitErr != nil {
-			err = errors.From(ErrCloseFailed, errors.WithMeta("rxp", "executors"), errors.WithWrap(waitErr))
+			err = errors.From(ErrCloseFailed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(waitErr))
 			return
 		}
 		return
 	}
 	if waitErr := exec.goroutines.WaitDownTo(ctx, 0); waitErr != nil {
-		err = errors.From(ErrCloseFailed, errors.WithMeta("rxp", "executors"), errors.WithWrap(waitErr))
+		err = errors.From(ErrCloseFailed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(waitErr))
 		return
 	}
 	return

@@ -15,14 +15,14 @@ import (
 func JoinStreamFutures[R any](members []Future[R]) Future[R] {
 	membersLen := len(members)
 	if membersLen == 0 {
-		panic(errors.New("async: join streams failed cause no streams", errors.WithMeta("rxp", "async")))
+		panic(errors.New("join streams failed cause no streams", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 		return nil
 	}
 	for i := 0; i < membersLen; i++ {
 		member := members[i]
 		stream := IsStreamFuture[R](member)
 		if !stream {
-			panic(errors.New("async: join streams failed cause not all are stream promise", errors.WithMeta("rxp", "async")))
+			panic(errors.New("join streams failed cause not all are stream promise", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 			return nil
 		}
 	}
@@ -64,7 +64,7 @@ func (s *streamFutures[R]) OnComplete(handler ResultHandler[R]) {
 // 当所有未来都结束了才会通知一个 Canceled 作为整体结束。
 func StreamPromises[R any](ctx context.Context, size int, options ...Option) (v Promise[R], err error) {
 	if size < 1 {
-		err = errors.New("async: stream promises size < 1", errors.WithMeta("rxp", "async"))
+		err = errors.New("stream promises size < 1", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 	options = append(options, WithStream(), WithWait())

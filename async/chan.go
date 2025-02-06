@@ -175,11 +175,11 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		select {
 		case r, ok := <-c.ch:
 			if !ok {
-				err = errors.From(Canceled, errors.WithMeta("rxp", "async"))
+				err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 				break
 			}
 			if rErr, isErr := r.(error); isErr {
-				err = errors.From(rErr, errors.WithMeta("rxp", "async"))
+				err = errors.From(rErr, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 				break
 			}
 			v = r
@@ -187,12 +187,12 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		case <-ctx.Done():
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 				} else {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), ExecutorsClosed)
+					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), ExecutorsClosed)
 				}
 			} else {
-				err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 			}
 			break
 		}
@@ -201,7 +201,7 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		select {
 		case r, ok := <-c.ch:
 			if !ok {
-				err = errors.From(Canceled, errors.WithMeta("rxp", "async"))
+				err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 				break
 			}
 			v = r
@@ -209,18 +209,18 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		case deadline := <-timer.C:
 			err = &DeadlineExceededError{Deadline: deadline, Err: DeadlineExceeded}
 			if c.size() == 1 {
-				err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), err)
+				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), err)
 			}
 			break
 		case <-ctx.Done():
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 				} else {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), ExecutorsClosed)
+					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), ExecutorsClosed)
 				}
 			} else {
-				err = errors.Join(errors.From(Canceled, errors.WithMeta("rxp", "async")), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 			}
 			break
 		}

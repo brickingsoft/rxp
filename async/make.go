@@ -191,7 +191,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 	}
 	exec, has := rxp.TryFrom(ctx)
 	if !has {
-		err = errors.New("async: executable not found", errors.WithMeta("rxp", "async"))
+		err = errors.New("executable not found", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 	if !exec.Running() {
@@ -257,7 +257,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		}
 		break
 	default:
-		err = errors.New("async: invalid mode")
+		err = errors.New("invalid mode", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
 	p = newFuture[R](ctx, submitter, opt.FutureOptions)

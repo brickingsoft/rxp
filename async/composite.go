@@ -17,13 +17,13 @@ import (
 func Composite[R []Result[E], E any](ctx context.Context, promises []Promise[E]) (future Future[R]) {
 	promisesLen := len(promises)
 	if promisesLen == 0 {
-		future = FailedImmediately[R](ctx, errors.New("async: empty promises", errors.WithMeta("rxp", "async")))
+		future = FailedImmediately[R](ctx, errors.New("empty promises", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 		return
 	}
 	members := make([]Future[E], promisesLen)
 	for i, member := range promises {
 		if member == nil {
-			future = FailedImmediately[R](ctx, errors.New("async: one of promises is nil", errors.WithMeta("rxp", "async")))
+			future = FailedImmediately[R](ctx, errors.New("one of promises is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 			return
 		}
 		members[i] = member.Future()
