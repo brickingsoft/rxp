@@ -100,7 +100,8 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 	// try unhandled
 	f.handleUnhandledResult()
 	// release
-	releaseChannel(f.channel)
+	ch := f.channel
+	releaseChannel(ch)
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
