@@ -9,21 +9,20 @@ import (
 	"time"
 )
 
-func prepare() (ctx context.Context, closer func() error) {
-	executors := rxp.New()
-	ctx = executors.Context()
-	closer = executors.Close
-	return
-}
-
 func TestTryPromise_CompleteErr(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise, promiseErr := async.Make[int](ctx)
 	if promiseErr != nil {
 		t.Errorf("try promise failed")
@@ -37,13 +36,19 @@ func TestTryPromise_CompleteErr(t *testing.T) {
 }
 
 func TestTryPromise_Cancel(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise1, ok1 := async.Make[int](ctx)
 	if ok1 != nil {
 		t.Errorf("try promise1 failed")
@@ -67,13 +72,19 @@ func TestTryPromise_Cancel(t *testing.T) {
 }
 
 func TestTryPromise_Timeout(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise1, ok1 := async.Make[int](ctx, async.WithTimeout(time.Second*3))
 	if ok1 != nil {
 		t.Errorf("try promise1 failed")
@@ -118,13 +129,19 @@ func TestAsUnexpectedContextError(t *testing.T) {
 }
 
 func TestStreamPromises_WithErrInterceptor(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise, promiseErr := async.Make[int](ctx)
 	if promiseErr != nil {
 		t.Errorf("try promise failed")

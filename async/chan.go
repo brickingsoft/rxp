@@ -86,9 +86,7 @@ func acquireChannel(size int) *channel {
 
 func releaseChannel(c *channel) {
 	// reset
-	c.sendAble = true
-	c.recvAble = true
-	c.timeout = 0
+	c.deadline = time.Time{}
 	// put
 	size := c.size()
 	if size < 2 {
@@ -138,20 +136,14 @@ func releaseChannel(c *channel) {
 func newChannel(size int) *channel {
 	c := &channel{
 		ch:       make(chan any, size),
-		lock:     sync.Mutex{},
-		recvAble: true,
-		sendAble: true,
-		timeout:  0,
+		deadline: time.Time{},
 	}
 	return c
 }
 
 type channel struct {
 	ch       chan any
-	lock     sync.Mutex
-	recvAble bool
-	sendAble bool
-	timeout  time.Duration
+	deadline time.Time
 }
 
 func (c *channel) size() int {
@@ -162,8 +154,16 @@ func (c *channel) remain() int {
 	return len(c.ch)
 }
 
-func (c *channel) setTimeout(timeout time.Duration) {
-	c.timeout = timeout
+func (c *channel) isStream() bool {
+	return cap(c.ch) != 1
+}
+
+func (c *channel) isOnce() bool {
+	return cap(c.ch) == 1
+}
+
+func (c *channel) setDeadline(deadline time.Time) {
+	c.deadline = deadline
 }
 
 func (c *channel) get() any {
@@ -171,7 +171,8 @@ func (c *channel) get() any {
 }
 
 func (c *channel) receive(ctx context.Context) (v any, err error) {
-	if c.timeout < 1 {
+	deadline := c.deadline
+	if deadline.IsZero() {
 		select {
 		case r, ok := <-c.ch:
 			if !ok {
@@ -197,94 +198,50 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 			break
 		}
 	} else {
-		timer := acquireTimer(c.timeout)
-		select {
-		case r, ok := <-c.ch:
-			if !ok {
-				err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-				break
-			}
-			v = r
-			break
-		case deadline := <-timer.C:
+		timeout := time.Until(deadline)
+		if timeout < 1 {
 			err = &DeadlineExceededError{Deadline: deadline, Err: DeadlineExceeded}
-			if c.size() == 1 {
+			if c.isOnce() {
 				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), err)
 			}
-			break
-		case <-ctx.Done():
-			if exec, has := rxp.TryFrom(ctx); has {
-				if exec.Running() {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
-				} else {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), ExecutorsClosed)
+		} else {
+			timer := acquireTimer(timeout)
+			select {
+			case r, ok := <-c.ch:
+				if !ok {
+					err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+					break
 				}
-			} else {
-				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				v = r
+				break
+			case deadline = <-timer.C:
+				err = &DeadlineExceededError{Deadline: deadline, Err: DeadlineExceeded}
+				if c.isOnce() {
+					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), err)
+				}
+				break
+			case <-ctx.Done():
+				if exec, has := rxp.TryFrom(ctx); has {
+					if exec.Running() {
+						err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					} else {
+						err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), ExecutorsClosed)
+					}
+				} else {
+					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				}
+				break
 			}
-			break
+			releaseTimer(timer)
 		}
-		releaseTimer(timer)
-	}
-	if err != nil {
-		if IsCanceled(err) {
-			c.end()
-		}
-	} else {
-		c.tryEnd()
 	}
 	return
 }
 
-func (c *channel) send(v any) bool {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	if !c.sendAble {
-		return false
-	}
+func (c *channel) send(v any) {
 	c.ch <- v
-	if c.size() == 1 {
-		c.sendAble = false
-	}
-	return true
 }
 
 func (c *channel) cancel() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	if c.sendAble {
-		c.sendAble = false
-		c.ch <- Canceled
-	}
-}
-
-func (c *channel) canReceive() bool {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	return c.recvAble
-}
-
-func (c *channel) canSend() bool {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	return c.sendAble
-}
-
-func (c *channel) disableSend() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.sendAble = false
-}
-
-func (c *channel) tryEnd() {
-	if c.size() == 1 {
-		c.end()
-	}
-}
-
-func (c *channel) end() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.recvAble = false
-	c.sendAble = false
+	c.ch <- Canceled
 }

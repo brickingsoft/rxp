@@ -8,16 +8,7 @@ import (
 	"time"
 )
 
-type PromiseMode int
-
-const (
-	Normal PromiseMode = iota
-	Unlimited
-	Direct
-)
-
 type Options struct {
-	Mode        PromiseMode
 	WaitTimeout time.Duration
 	FutureOptions
 }
@@ -50,30 +41,6 @@ func WithStreamAndSize(buf int) Option {
 			buf = 1
 		}
 		o.StreamBuffer = buf
-	}
-}
-
-// WithNormalMode
-// 普通模式
-func WithNormalMode() Option {
-	return func(o *Options) {
-		o.Mode = Normal
-	}
-}
-
-// WithUnlimitedMode
-// 无限制模式
-func WithUnlimitedMode() Option {
-	return func(o *Options) {
-		o.Mode = Unlimited
-	}
-}
-
-// WithDirectMode
-// 直接模式
-func WithDirectMode() Option {
-	return func(o *Options) {
-		o.Mode = Direct
 	}
 }
 
@@ -115,7 +82,7 @@ func WithDeadline(deadline time.Time) Option {
 		if o.WaitTimeout < 1 || o.WaitTimeout > timeout {
 			o.WaitTimeout = timeout
 		}
-		o.Timeout = timeout
+		o.Deadline = deadline
 	}
 }
 
@@ -129,7 +96,7 @@ func WithTimeout(timeout time.Duration) Option {
 		if o.WaitTimeout < 1 || o.WaitTimeout > timeout {
 			o.WaitTimeout = timeout
 		}
-		o.Timeout = timeout
+		o.Deadline = time.Now().Add(timeout)
 	}
 }
 
@@ -139,11 +106,10 @@ type optionsCtxKey struct{}
 // 把 Make 的 Options 绑定到 context.Context。常用于设置上下文中的默认选项。
 func WithOptions(ctx context.Context, options ...Option) context.Context {
 	opt := Options{
-		Mode:        Normal,
 		WaitTimeout: 0,
 		FutureOptions: FutureOptions{
 			StreamBuffer: 1,
-			Timeout:      0,
+			Deadline:     time.Time{},
 		},
 	}
 	for _, o := range options {
@@ -156,11 +122,10 @@ func getOptions(ctx context.Context) Options {
 	value := ctx.Value(optionsCtxKey{})
 	if value == nil {
 		return Options{
-			Mode:        Normal,
 			WaitTimeout: 0,
 			FutureOptions: FutureOptions{
 				StreamBuffer: 1,
-				Timeout:      0,
+				Deadline:     time.Time{},
 			},
 		}
 	}
@@ -189,57 +154,47 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 	for _, o := range options {
 		o(&opt)
 	}
-	exec, has := rxp.TryFrom(ctx)
-	if !has {
-		err = errors.New("executable not found", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	// no timeout
+	if opt.WaitTimeout == 0 {
+		submitter, submitterErr := rxp.TryGetTaskSubmitter(ctx)
+		if submitterErr != nil {
+			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(submitterErr))
+			return
+		}
+		p = newFuture[R](ctx, submitter, opt.FutureOptions)
 		return
 	}
-	if !exec.Running() {
-		err = ExecutorsClosed
-		return
+
+	// await or timeout
+	var timer *time.Timer
+	if timeout := opt.WaitTimeout; timeout > 0 {
+		timer = acquireTimer(timeout)
 	}
-	var submitter rxp.TaskSubmitter
-	switch opt.Mode {
-	case Unlimited:
-		submitter = unlimitedSubmitterInstance
-		break
-	case Direct:
-		submitter = directSubmitterInstance
-		break
-	case Normal:
-		if opt.WaitTimeout == 0 {
-			submitter = exec.TryGetTaskSubmitter()
-			if submitter == nil {
-				if !exec.Running() {
-					err = ExecutorsClosed
-				} else {
-					err = Busy
-				}
-				return
-			}
+	times := 10
+	stopped := false
+	for {
+		select {
+		case <-ctx.Done():
+			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(&UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}))
+			stopped = true
 			break
-		}
-		var waitCtx context.Context
-		var cancel context.CancelFunc
-		if opt.WaitTimeout > 0 {
-			waitCtx, cancel = context.WithTimeout(ctx, opt.WaitTimeout)
-		}
-		times := 10
-		for {
-			submitter = exec.TryGetTaskSubmitter()
+		case <-timer.C:
+			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(rxp.ErrBusy))
+			stopped = true
+			break
+		default:
+			submitter, submitterErr := rxp.TryGetTaskSubmitter(ctx)
+			if submitterErr != nil {
+				if IsBusy(submitterErr) {
+					continue
+				}
+				err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(submitterErr))
+				stopped = true
+				break
+			}
 			if submitter != nil {
-				break
-			}
-			if waitCtx != nil && waitCtx.Err() != nil {
-				err = Busy
-				break
-			}
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				err = &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}
-				break
-			}
-			if !exec.Running() {
-				err = ExecutorsClosed
+				p = newFuture[R](ctx, submitter, opt.FutureOptions)
+				stopped = true
 				break
 			}
 			times--
@@ -248,18 +203,11 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 				runtime.Gosched()
 			}
 			time.Sleep(ns500)
+			break
 		}
-		if cancel != nil {
-			cancel()
+		if stopped {
+			break
 		}
-		if err != nil {
-			return
-		}
-		break
-	default:
-		err = errors.New("invalid mode", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-		return
 	}
-	p = newFuture[R](ctx, submitter, opt.FutureOptions)
 	return
 }

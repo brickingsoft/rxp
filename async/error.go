@@ -9,7 +9,6 @@ import (
 var (
 	Canceled                = errors.Define("promise canceled")
 	DeadlineExceeded        = errors.Define("deadline exceeded")
-	Busy                    = errors.Define("busy")
 	UnexpectedContextFailed = errors.Define("unexpected context failed")
 	ExecutorsClosed         = rxp.ErrClosed
 )
@@ -17,7 +16,7 @@ var (
 // IsExecutorsClosed
 // 是否为 ExecutorsClosed 错误，指 rxp.Executors 关闭。
 func IsExecutorsClosed(err error) bool {
-	return errors.Is(err, ExecutorsClosed)
+	return errors.Is(err, rxp.ErrClosed)
 }
 
 // IsUnexpectedContextFailed
@@ -63,7 +62,7 @@ func IsDeadlineExceeded(err error) bool {
 // IsBusy
 // 是否为 Busy 错误，指 rxp.Executors 资源不足。
 func IsBusy(err error) bool {
-	return errors.Is(err, Busy)
+	return errors.Is(err, rxp.ErrBusy)
 }
 
 const (

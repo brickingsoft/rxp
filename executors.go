@@ -6,7 +6,6 @@ import (
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"github.com/brickingsoft/rxp/pkg/rate/counter"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +16,8 @@ var (
 	ErrClosed = errors.Define("executors has been closed")
 	// ErrCloseFailed 关闭执行池失败（一般是关闭超时引发）
 	ErrCloseFailed = errors.Define("executors close failed")
+	// ErrBusy 无可用协程
+	ErrBusy = errors.Define("executors is busy")
 )
 
 // IsClosed
@@ -27,6 +28,17 @@ func IsClosed(err error) bool {
 
 const (
 	ns500 = 500 * time.Nanosecond
+)
+
+type Mode int
+
+const (
+	// ShareMode
+	// 共享协程模式。
+	ShareMode Mode = iota
+	// AloneMode
+	// 独占协程模式
+	AloneMode
 )
 
 const (
@@ -52,12 +64,6 @@ type Executors interface {
 	//
 	// 当 context.Context 有错误或者 Executors.Close、Executors.CloseGracefully，则返回错误。
 	Execute(ctx context.Context, task Task) (err error)
-	// UnlimitedExecute
-	// 执行一个不受限型任务。它不受最大协程数限制，可以突破协程数上限，但会增加协程数导致其它方式会得不到协程而失败或等待可用。
-	UnlimitedExecute(ctx context.Context, task Task) (err error)
-	// DirectExecute
-	// 直接执行。它受最大协程数限制，但不会请求任务提交器，而是直接起一个协程。
-	DirectExecute(ctx context.Context, task Task) (err error)
 	// Goroutines
 	// 当前 goroutine 数量
 	Goroutines() (n int64)
@@ -67,13 +73,6 @@ type Executors interface {
 	// Running
 	// 是否运行中
 	Running() bool
-	// TryGetTaskSubmitter
-	// 尝试获取一个 TaskSubmitter
-	//
-	// 如果 goroutine 已满载，则返回 false。
-	// 注意：如果获得后必须提交任务，否则会 goroutine 会一直占用。
-	// 如果提交失败则会自动释放。
-	TryGetTaskSubmitter() (submitter TaskSubmitter)
 	// Close
 	// 优雅关闭
 	//
@@ -84,9 +83,10 @@ type Executors interface {
 
 // New
 // 创建执行池
-func New(options ...Option) Executors {
+func New(options ...Option) (Executors, error) {
 	opts := Options{
 		Ctx:                            nil,
+		Mode:                           ShareMode,
 		MaxprocsOptions:                maxprocs.Options{},
 		MaxGoroutines:                  defaultMaxGoroutines,
 		MaxReadyGoroutinesIdleDuration: defaultMaxReadyGoroutinesIdleDuration,
@@ -96,15 +96,13 @@ func New(options ...Option) Executors {
 		for _, option := range options {
 			optErr := option(&opts)
 			if optErr != nil {
-				panic(errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(optErr)))
-				return nil
+				return nil, errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(optErr))
 			}
 		}
 	}
 	undo, procsErr := maxprocs.Enable(opts.MaxprocsOptions)
 	if procsErr != nil {
-		panic(errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(procsErr)))
-		return nil
+		return nil, errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(procsErr))
 	}
 	rootCtx := opts.Ctx
 	if rootCtx == nil {
@@ -112,320 +110,41 @@ func New(options ...Option) Executors {
 	}
 	ctx, cancel := context.WithCancel(rootCtx)
 
-	exec := &executors{
-		ctx:                            nil,
-		ctxCancel:                      cancel,
-		maxGoroutines:                  int64(opts.MaxGoroutines),
-		maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
-		locker:                         spin.New(),
-		running:                        new(atomic.Bool),
-		ready:                          nil,
-		submitters:                     sync.Pool{},
-		goroutines:                     counter.New(),
-		closeTimeout:                   opts.CloseTimeout,
-		undo:                           undo,
-	}
-	exec.ctx = With(ctx, exec)
-	exec.start()
-	return exec
-}
-
-type executors struct {
-	ctx                            context.Context
-	ctxCancel                      context.CancelFunc
-	maxGoroutines                  int64
-	maxReadyGoroutinesIdleDuration time.Duration
-	locker                         sync.Locker
-	running                        *atomic.Bool
-	ready                          []*submitterImpl
-	submitters                     sync.Pool
-	goroutines                     *counter.Counter
-	closeTimeout                   time.Duration
-	stopCh                         chan struct{}
-	undo                           maxprocs.Undo
-}
-
-func (exec *executors) Context() context.Context {
-	return exec.ctx
-}
-
-func (exec *executors) TryExecute(ctx context.Context, task Task) bool {
-	if task == nil || !exec.Available() {
-		return false
-	}
-	if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
-		submitter.Submit(ctx, task)
-	}
-	return true
-}
-
-func (exec *executors) Execute(ctx context.Context, task Task) (err error) {
-	if task == nil {
-		err = errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-		return
-	}
-	times := 10
-	for {
-		if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
-			submitter.Submit(ctx, task)
-			break
+	switch opts.Mode {
+	case ShareMode:
+		exec := &share{
+			ctx:                            nil,
+			ctxCancel:                      cancel,
+			maxGoroutines:                  int64(opts.MaxGoroutines),
+			maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
+			locker:                         spin.New(),
+			running:                        new(atomic.Bool),
+			ready:                          nil,
+			submitters:                     sync.Pool{},
+			goroutines:                     counter.New(),
+			closeTimeout:                   opts.CloseTimeout,
+			undo:                           undo,
 		}
-		if !exec.running.Load() {
-			err = ErrClosed
-			return
+		exec.ctx = With(ctx, exec)
+		exec.start()
+		return exec, nil
+	case AloneMode:
+		exec := &alone{
+			ctx:           nil,
+			ctxCancel:     cancel,
+			maxGoroutines: int64(opts.MaxGoroutines),
+			locker:        spin.New(),
+			running:       new(atomic.Bool),
+			goroutines:    counter.New(),
+			closeTimeout:  opts.CloseTimeout,
+			undo:          undo,
 		}
-		time.Sleep(ns500)
-		times--
-		if times < 0 {
-			times = 10
-			runtime.Gosched()
-		}
-	}
-	return
-}
-
-func (exec *executors) UnlimitedExecute(ctx context.Context, task Task) (err error) {
-	if task == nil {
-		err = errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-		return
-	}
-	if !exec.running.Load() {
-		err = ErrClosed
-		return
-	}
-	exec.goroutines.Incr()
-
-	go func(ctx context.Context, task Task, exec *executors) {
-		task(ctx)
-		exec.goroutines.Decr()
-	}(ctx, task, exec)
-
-	return err
-}
-
-func (exec *executors) DirectExecute(ctx context.Context, task Task) (err error) {
-	if task == nil {
-		err = errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-		return
-	}
-	if !exec.running.Load() {
-		err = ErrClosed
-		return
-	}
-
-	exec.goroutines.Incr()
-
-	if err = exec.goroutines.WaitDownTo(ctx, exec.maxGoroutines); err != nil {
-		exec.goroutines.Decr()
-		return
-	}
-
-	go func(ctx context.Context, task Task, exec *executors) {
-		task(ctx)
-		exec.goroutines.Decr()
-	}(ctx, task, exec)
-	return
-}
-
-func (exec *executors) Goroutines() (n int64) {
-	n = exec.goroutines.Value()
-	return
-}
-
-func (exec *executors) Available() bool {
-	return exec.running.Load() && exec.goroutines.Value() < exec.maxGoroutines
-}
-
-func (exec *executors) Running() bool {
-	return exec.running.Load()
-}
-
-func (exec *executors) TryGetTaskSubmitter() (v TaskSubmitter) {
-	if !exec.running.Load() {
-		return
-	}
-
-	var submitter *submitterImpl
-	createExecutor := false
-
-	exec.locker.Lock()
-
-	ready := exec.ready
-	n := len(ready) - 1
-	if n < 0 {
-		if exec.Available() {
-			createExecutor = true
-		}
-	} else {
-		submitter = ready[n]
-		ready[n] = nil
-		exec.ready = ready[:n]
-	}
-	exec.locker.Unlock()
-	if submitter == nil {
-		if !createExecutor {
-			return
-		}
-		vch := exec.submitters.Get()
-		submitter = vch.(*submitterImpl)
-		exec.goroutines.Incr()
-		go func(exec *executors, submitter *submitterImpl) {
-			exec.handle(submitter)
-			exec.submitters.Put(submitter)
-			exec.goroutines.Decr()
-		}(exec, submitter)
-	}
-	v = submitter
-	return
-}
-
-func (exec *executors) Close() (err error) {
-	if ok := exec.running.CompareAndSwap(true, false); !ok {
-		err = errors.New("executors already closed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-		return
-	}
-
-	defer exec.undo()
-
-	close(exec.stopCh)
-
-	ctx := exec.ctx
-	cancel := exec.ctxCancel
-	defer cancel()
-
-	if closeTimeout := exec.closeTimeout; closeTimeout > 0 {
-		waitCtx, waitCtxCancel := context.WithTimeout(ctx, closeTimeout)
-		waitErr := exec.goroutines.WaitDownTo(waitCtx, 0)
-		waitCtxCancel()
-		if waitErr != nil {
-			err = errors.From(ErrCloseFailed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(waitErr))
-			return
-		}
-		return
-	}
-	if waitErr := exec.goroutines.WaitDownTo(ctx, 0); waitErr != nil {
-		err = errors.From(ErrCloseFailed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(waitErr))
-		return
-	}
-	return
-}
-
-func (exec *executors) start() {
-	exec.running.Store(true)
-	exec.stopCh = make(chan struct{})
-	exec.submitters.New = func() interface{} {
-		return &submitterImpl{
-			lastUseTime: time.Time{},
-			ch:          make(chan taskEntry, 1),
-		}
-	}
-	go func(exec *executors) {
-		ctx := exec.ctx
-		stopCh := exec.stopCh
-		var scratch []*submitterImpl
-		maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
-		stopped := false
-		timer := time.NewTimer(maxExecutorIdleDuration)
-		for {
-			select {
-			case <-ctx.Done():
-				stopped = true
-				break
-			case <-stopCh:
-				stopped = true
-				break
-			case <-timer.C:
-				exec.clean(&scratch)
-				timer.Reset(maxExecutorIdleDuration)
-				break
-			}
-			if stopped {
-				break
-			}
-		}
-		timer.Stop()
-
-		exec.locker.Lock()
-		ready := exec.ready
-		for i := range ready {
-			ready[i].stop()
-			ready[i] = nil
-		}
-		exec.ready = ready[:0]
-		exec.locker.Unlock()
-	}(exec)
-}
-
-func (exec *executors) clean(scratch *[]*submitterImpl) {
-	exec.locker.Lock()
-	ready := exec.ready
-	n := len(ready)
-	if n == 0 {
-		exec.locker.Unlock()
-		return
-	}
-
-	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
-	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
-
-	l, r, mid := 0, n-1, 0
-	for l <= r {
-		mid = (l + r) / 2
-		if criticalTime.After(exec.ready[mid].lastUseTime) {
-			l = mid + 1
-		} else {
-			r = mid - 1
-		}
-	}
-	i := r
-	if i == -1 {
-		exec.locker.Unlock()
-		return
-	}
-	*scratch = append((*scratch)[:0], ready[:i+1]...)
-	m := copy(ready, ready[i+1:])
-	for i = m; i < n; i++ {
-		ready[i] = nil
-	}
-	exec.ready = ready[:m]
-	exec.locker.Unlock()
-
-	tmp := *scratch
-	for j := range tmp {
-		tmp[j].stop()
-		tmp[j] = nil
-	}
-}
-
-func (exec *executors) release(submitter *submitterImpl) (ok bool) {
-	if exec.running.Load() {
-		submitter.lastUseTime = time.Now()
-		exec.locker.Lock()
-		if ok = exec.running.Load(); ok {
-			exec.ready = append(exec.ready, submitter)
-		}
-		exec.locker.Unlock()
-	}
-	return
-}
-
-func (exec *executors) handle(submitter *submitterImpl) {
-	if submitter == nil {
-		return
-	}
-	for {
-		entry, ok := <-submitter.ch
-		if !ok {
-			break
-		}
-		task := entry.task
-		if task == nil {
-			break
-		}
-		ctx := exec.ctx
-		task(ctx)
-		if !exec.release(submitter) {
-			break
-		}
+		exec.ctx = With(ctx, exec)
+		exec.start()
+		return exec, nil
+	default:
+		undo()
+		cancel()
+		return nil, errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define("invalid mode")))
 	}
 }

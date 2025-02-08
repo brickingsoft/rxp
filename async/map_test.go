@@ -2,21 +2,28 @@ package async_test
 
 import (
 	"context"
+	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"strconv"
 	"testing"
 )
 
-func TestCompose(t *testing.T) {
-	ctx, closer := prepare()
+func TestMap(t *testing.T) {
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	sf := cs(ctx, "1")
-	cf := async.Compose[string, int](
+	cf := async.Map[string, int](
 		ctx,
 		sf,
 		func(ctx context.Context, entry string) (future async.Future[int]) {
@@ -36,7 +43,6 @@ func TestCompose(t *testing.T) {
 		}
 		t.Log("entry:", entry)
 	})
-
 }
 
 func cs(ctx context.Context, s string) async.Future[string] {

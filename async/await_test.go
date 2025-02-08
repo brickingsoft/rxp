@@ -1,19 +1,26 @@
 package async_test
 
 import (
+	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"sync"
 	"testing"
 )
 
 func TestPromise_Await(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise, ok := async.Make[int](ctx)
 	if ok != nil {
 		t.Errorf("try promise failed")
@@ -29,13 +36,19 @@ func TestPromise_Await(t *testing.T) {
 }
 
 func TestStreamPromise_Await(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise, ok := async.Make[int](ctx, async.WithStream())
 	if ok != nil {
 		t.Errorf("try promise failed")

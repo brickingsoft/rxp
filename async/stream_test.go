@@ -2,6 +2,7 @@ package async_test
 
 import (
 	"context"
+	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"testing"
 )
@@ -16,25 +17,20 @@ func (c *Closer) Close() error {
 	return nil
 }
 
-type AsyncCloser struct {
-	N   int
-	t   *testing.T
-	ctx context.Context
-}
-
-func (c *AsyncCloser) Close() async.Future[async.Void] {
-	c.t.Log("close ", c.N)
-	return async.SucceedImmediately[async.Void](c.ctx, async.Void{})
-}
-
 func TestTryStreamPromise(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
 	}()
+
 	promise, promiseErr := async.Make[*Closer](ctx, async.WithStream())
 	if promiseErr != nil {
 		t.Errorf("try promise failed")
@@ -58,67 +54,4 @@ func TestTryStreamPromise(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		promise.Succeed(&Closer{N: i, t: t})
 	}
-}
-
-func TestTryStreamPromiseWithAsyncCloser(t *testing.T) {
-	ctx, closer := prepare()
-	defer func() {
-		err := closer()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-	promise, promiseErr := async.Make[*AsyncCloser](ctx, async.WithStream())
-	if promiseErr != nil {
-		t.Errorf("try promise failed")
-		return
-	}
-	future := promise.Future()
-	future.OnComplete(func(ctx context.Context, result *AsyncCloser, err error) {
-		t.Log("future entry:", result, err)
-		if err != nil {
-			t.Log("is canceled:", async.IsCanceled(err))
-			return
-		}
-		return
-	})
-	for i := 0; i < 10; i++ {
-		promise.Succeed(&AsyncCloser{N: i, t: t, ctx: ctx})
-	}
-	promise.Cancel()
-	for i := 0; i < 10; i++ {
-		promise.Succeed(&AsyncCloser{N: i, t: t, ctx: ctx})
-	}
-}
-
-func TestMustStreamPromise(t *testing.T) {
-	ctx, closer := prepare()
-	defer func() {
-		err := closer()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-	promise, err := async.Make[*Closer](ctx, async.WithStream(), async.WithWait())
-	if err != nil {
-		t.Errorf("try promise failed, %v", err)
-		return
-	}
-	future := promise.Future()
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
-		t.Log("future entry:", result, err)
-		if err != nil {
-			t.Log("is eof:", async.IsCanceled(err))
-			cancel()
-			return
-		}
-		return
-	})
-	for i := 0; i < 10; i++ {
-		promise.Succeed(&Closer{N: i, t: t})
-	}
-	promise.Cancel()
-	<-ctx.Done()
 }

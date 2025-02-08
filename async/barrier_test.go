@@ -2,15 +2,21 @@ package async_test
 
 import (
 	"context"
+	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"sync"
 	"testing"
 )
 
 func TestBarrier_Do(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -35,9 +41,14 @@ func TestBarrier_Do(t *testing.T) {
 }
 
 func TestBarrier_Forget(t *testing.T) {
-	ctx, closer := prepare()
+	exec, execErr := rxp.New()
+	if execErr != nil {
+		t.Fatal(execErr)
+		return
+	}
+	ctx := exec.Context()
 	defer func() {
-		err := closer()
+		err := exec.Close()
 		if err != nil {
 			t.Error(err)
 		}

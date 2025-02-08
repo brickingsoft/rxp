@@ -4,6 +4,8 @@ import (
 	"context"
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/pkg/rate/spin"
+	"sync"
 	"time"
 )
 
@@ -17,7 +19,7 @@ type Future[R any] interface {
 
 type FutureOptions struct {
 	StreamBuffer int
-	Timeout      time.Duration
+	Deadline     time.Time
 }
 
 func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, opts FutureOptions) *futureImpl[R] {
@@ -26,53 +28,47 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, opts Fut
 		buffer = 1
 	}
 	ch := acquireChannel(buffer)
-	if timeout := opts.Timeout; timeout > 0 {
-		ch.setTimeout(timeout)
+	if deadline := opts.Deadline; !deadline.IsZero() {
+		ch.setDeadline(deadline)
 	}
 	f := &futureImpl[R]{
-		channel:   ch,
-		ctx:       ctx,
-		submitter: submitter,
+		ch:                     ch,
+		ctx:                    ctx,
+		locker:                 spin.New(),
+		available:              true,
+		submitter:              submitter,
+		handler:                nil,
+		errInterceptor:         nil,
+		unhandledResultHandler: nil,
 	}
 	return f
 }
 
 type futureImpl[R any] struct {
-	*channel
+	ch                     *channel
 	ctx                    context.Context
+	locker                 sync.Locker
+	available              bool
 	submitter              rxp.TaskSubmitter
 	handler                ResultHandler[R]
 	errInterceptor         ErrInterceptor[R]
 	unhandledResultHandler UnhandledResultHandler[R]
 }
 
-func (f *futureImpl[R]) handleUnhandledResult() {
-	if remain := f.remain(); remain > 0 {
-		for i := 0; i < remain; i++ {
-			v := f.get()
-			if v != nil && f.unhandledResultHandler != nil {
-				r, ok := v.(result[R])
-				if ok {
-					f.unhandledResultHandler(r.value)
-				}
-			}
-		}
-	}
-}
-
 func (f *futureImpl[R]) handle(ctx context.Context) {
+	ch := f.ch
 	for {
-		e, err := f.receive(ctx)
+		e, err := ch.receive(ctx)
 		if err != nil {
 			if f.errInterceptor != nil {
 				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
 			} else {
 				f.handler(f.ctx, *(new(R)), err)
 			}
-			if f.canReceive() {
-				continue
+			if IsCanceled(err) {
+				break
 			}
-			break
+			continue
 		}
 		// handle result
 		if r, ok := e.(result[R]); ok {
@@ -83,6 +79,9 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 			} else {
 				f.handler(f.ctx, rVal, rErr)
 			}
+			if ch.isOnce() {
+				break
+			}
 		} else {
 			err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), errors.New("type of result is unexpected", errors.WithMeta("rxp", "async")))
 			if f.errInterceptor != nil {
@@ -90,17 +89,25 @@ func (f *futureImpl[R]) handle(ctx context.Context) {
 			} else {
 				f.handler(f.ctx, *(new(R)), err)
 			}
-			f.end()
+			break
 		}
-		if f.canReceive() {
-			continue
-		}
-		break
 	}
+	f.locker.Lock()
+	f.available = false
+	f.locker.Unlock()
 	// try unhandled
-	f.handleUnhandledResult()
+	if remain := ch.remain(); remain > 0 {
+		for i := 0; i < remain; i++ {
+			v := ch.get()
+			if v != nil && f.unhandledResultHandler != nil {
+				r, ok := v.(result[R])
+				if ok {
+					f.unhandledResultHandler(r.value)
+				}
+			}
+		}
+	}
 	// release
-	ch := f.channel
 	releaseChannel(ch)
 }
 
@@ -121,7 +128,21 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 }
 
 func (f *futureImpl[R]) Complete(r R, err error) bool {
-	return f.send(result[R]{value: r, err: err})
+	f.locker.Lock()
+	if !f.available {
+		f.locker.Unlock()
+		return false
+	}
+	if ch := f.ch; ch != nil {
+		ch.send(result[R]{value: r, err: err})
+		if ch.isOnce() {
+			f.available = false
+		}
+		f.locker.Unlock()
+		return true
+	}
+	f.locker.Unlock()
+	return false
 }
 
 func (f *futureImpl[R]) Succeed(r R) bool {
@@ -133,7 +154,15 @@ func (f *futureImpl[R]) Fail(err error) bool {
 }
 
 func (f *futureImpl[R]) Cancel() {
-	f.cancel()
+	f.locker.Lock()
+	if !f.available {
+		f.locker.Unlock()
+		return
+	}
+	ch := f.ch
+	ch.cancel()
+	f.available = false
+	f.locker.Unlock()
 }
 
 func (f *futureImpl[R]) SetErrInterceptor(interceptor ErrInterceptor[R]) {

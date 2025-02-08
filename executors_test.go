@@ -17,7 +17,11 @@ func RandTask(_ context.Context) {
 func TestExecutors_TryExecute(t *testing.T) {
 	tasks := 100
 	counter := new(atomic.Int64)
-	executors := rxp.New()
+	executors, err := rxp.New()
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	ctx := executors.Context()
 	defer func(executors rxp.Executors) {
 		err := executors.Close()
@@ -43,7 +47,11 @@ func TestExecutors_TryExecute(t *testing.T) {
 func TestExecutors_CloseTimeout(t *testing.T) {
 	tasks := 100
 	counter := new(atomic.Int64)
-	executors := rxp.New(rxp.WithCloseTimeout(time.Second))
+	executors, err := rxp.New(rxp.WithCloseTimeout(time.Second))
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	ctx := executors.Context()
 	defer func(executors rxp.Executors) {
 		err := executors.Close()
@@ -87,7 +95,11 @@ func TestExecutors_CloseTimeout(t *testing.T) {
 // BenchmarkExecutors_Execute-20    	 2636208	       429.0 ns/op	         0 failed	       0 B/op	       0 allocs/op
 func BenchmarkExecutors_Execute(b *testing.B) {
 	b.ReportAllocs()
-	executors := rxp.New()
+	executors, err := rxp.New()
+	if err != nil {
+		b.Error(err)
+		return
+	}
 	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
@@ -100,7 +112,7 @@ func BenchmarkExecutors_Execute(b *testing.B) {
 		}
 	})
 
-	err := executors.Close()
+	err = executors.Close()
 	if err != nil {
 		b.Error(err)
 	}
@@ -116,7 +128,11 @@ func BenchmarkExecutors_Execute(b *testing.B) {
 // BenchmarkExecutors_TryExecute_Parallel-20    	 2670756	       412.1 ns/op	         0 failed	       0 B/op	       0 allocs/op
 func BenchmarkExecutors_TryExecute_Parallel(b *testing.B) {
 	b.ReportAllocs()
-	executors := rxp.New()
+	executors, err := rxp.New()
+	if err != nil {
+		b.Error(err)
+		return
+	}
 	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
@@ -128,7 +144,7 @@ func BenchmarkExecutors_TryExecute_Parallel(b *testing.B) {
 			}
 		}
 	})
-	err := executors.Close()
+	err = executors.Close()
 	if err != nil {
 		b.Error(err)
 	}
@@ -144,7 +160,11 @@ func BenchmarkExecutors_TryExecute_Parallel(b *testing.B) {
 // BenchmarkExecutors_TryExecute-20    	 2940900	       385.0 ns/op	         0 failed	       0 B/op	       0 allocs/op
 func BenchmarkExecutors_TryExecute(b *testing.B) {
 	b.ReportAllocs()
-	executors := rxp.New()
+	executors, err := rxp.New()
+	if err != nil {
+		b.Error(err)
+		return
+	}
 	ctx := executors.Context()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
@@ -154,63 +174,7 @@ func BenchmarkExecutors_TryExecute(b *testing.B) {
 			failed.Add(1)
 		}
 	}
-	err := executors.Close()
-	if err != nil {
-		b.Error(err)
-	}
-	b.ReportMetric(float64(failed.Load()), "failed")
-}
-
-// BenchmarkExecutors_UnlimitedExecute
-// goos: windows
-// goarch: amd64
-// pkg: github.com/brickingsoft/rxp
-// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkExecutors_UnlimitedExecute
-// BenchmarkExecutors_UnlimitedExecute-20    	 6444103	       186.6 ns/op	         0 failed	      34 B/op	       1 allocs/op
-func BenchmarkExecutors_UnlimitedExecute(b *testing.B) {
-	b.ReportAllocs()
-	executors := rxp.New()
-	ctx := executors.Context()
-	failed := new(atomic.Int64)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			err := executors.UnlimitedExecute(ctx, RandTask)
-			if err != nil {
-				failed.Add(1)
-			}
-		}
-	})
-	err := executors.Close()
-	if err != nil {
-		b.Error(err)
-	}
-	b.ReportMetric(float64(failed.Load()), "failed")
-}
-
-// BenchmarkExecutors_UnlimitedExecute
-// goos: windows
-// goarch: amd64
-// pkg: github.com/brickingsoft/rxp
-// cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkExecutors_DirectExecute
-// BenchmarkExecutors_DirectExecute-20    	 6532232	       186.2 ns/op	         0 failed	      50 B/op	       1 allocs/op
-func BenchmarkExecutors_DirectExecute(b *testing.B) {
-	b.ReportAllocs()
-	executors := rxp.New()
-	ctx := executors.Context()
-	failed := new(atomic.Int64)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			err := executors.DirectExecute(ctx, RandTask)
-			if err != nil {
-				failed.Add(1)
-			}
-		}
-	})
-	err := executors.Close()
+	err = executors.Close()
 	if err != nil {
 		b.Error(err)
 	}

@@ -23,6 +23,9 @@ type Options struct {
 	// Ctx
 	// 根上下文
 	Ctx context.Context
+	// Mode
+	// 模式
+	Mode Mode
 	// MaxprocsOptions
 	// 最大处理器选项 maxprocs.Options
 	MaxprocsOptions maxprocs.Options
@@ -38,6 +41,24 @@ type Options struct {
 	// CloseTimeout
 	// 关闭超时时长
 	CloseTimeout time.Duration
+}
+
+// WithMode
+// 设置模式。
+func WithMode(mode Mode) Option {
+	return func(o *Options) error {
+		switch mode {
+		case AloneMode:
+			o.Mode = AloneMode
+			break
+		case ShareMode:
+			o.Mode = ShareMode
+			break
+		default:
+			return errors.New("invalid mode")
+		}
+		return nil
+	}
 }
 
 // WithContext
