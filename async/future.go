@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
-	"sync"
 	"time"
 )
 
@@ -14,6 +13,7 @@ import (
 type Future[R any] interface {
 	// OnComplete
 	// 注册一个结果处理器，它是异步非堵塞的。
+	// 注意，这步是必须的且只能调用一次（除非使用 AwaitableFuture）。
 	OnComplete(handler ResultHandler[R])
 }
 
@@ -32,10 +32,10 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, opts Fut
 		ch.setDeadline(deadline)
 	}
 	f := &futureImpl[R]{
-		ch:                     ch,
 		ctx:                    ctx,
-		locker:                 spin.New(),
+		locker:                 spin.Locker{},
 		available:              true,
+		ch:                     ch,
 		submitter:              submitter,
 		handler:                nil,
 		errInterceptor:         nil,
@@ -45,64 +45,71 @@ func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, opts Fut
 }
 
 type futureImpl[R any] struct {
-	ch                     *channel
 	ctx                    context.Context
-	locker                 sync.Locker
+	locker                 spin.Locker
 	available              bool
+	ch                     *channel
 	submitter              rxp.TaskSubmitter
 	handler                ResultHandler[R]
 	errInterceptor         ErrInterceptor[R]
 	unhandledResultHandler UnhandledResultHandler[R]
 }
 
-func (f *futureImpl[R]) handle(ctx context.Context) {
+func (f *futureImpl[R]) Handle(ctx context.Context) {
 	ch := f.ch
+	handler := f.handler
+	errInterceptor := f.errInterceptor
 	for {
 		e, err := ch.receive(ctx)
 		if err != nil {
-			if f.errInterceptor != nil {
-				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
+			var r R
+			if e != nil {
+				if rv, ok := e.(R); ok {
+					r = rv
+				}
+			}
+			if errInterceptor != nil {
+				errInterceptor(ctx, r, err).OnComplete(handler)
 			} else {
-				f.handler(f.ctx, *(new(R)), err)
+				handler(ctx, r, err)
 			}
 			if IsCanceled(err) {
 				break
 			}
-			continue
-		}
-		// handle result
-		if r, ok := e.(result[R]); ok {
-			rVal := r.Value()
-			rErr := r.Error()
-			if rErr != nil && f.errInterceptor != nil {
-				f.errInterceptor(ctx, rVal, rErr).OnComplete(f.handler)
-			} else {
-				f.handler(f.ctx, rVal, rErr)
-			}
 			if ch.isOnce() {
 				break
 			}
-		} else {
-			err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), errors.New("type of result is unexpected", errors.WithMeta("rxp", "async")))
-			if f.errInterceptor != nil {
-				f.errInterceptor(ctx, *(new(R)), err).OnComplete(f.handler)
+			continue
+		}
+		rv, ok := e.(R)
+		if !ok {
+			var r R
+			err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), errors.New("type of entry is unexpected", errors.WithMeta("rxp", "async")))
+			if errInterceptor != nil {
+				errInterceptor(ctx, r, err).OnComplete(handler)
 			} else {
-				f.handler(f.ctx, *(new(R)), err)
+				handler(f.ctx, r, err)
 			}
+			break
+		}
+		handler(ctx, rv, nil)
+		if ch.isOnce() {
 			break
 		}
 	}
 	f.locker.Lock()
 	f.available = false
+	f.ch = nil
 	f.locker.Unlock()
 	// try unhandled
 	if remain := ch.remain(); remain > 0 {
+		unhandledResultHandler := f.unhandledResultHandler
 		for i := 0; i < remain; i++ {
-			v := ch.get()
-			if v != nil && f.unhandledResultHandler != nil {
-				r, ok := v.(result[R])
+			msg := ch.get()
+			if msg.value != nil && unhandledResultHandler != nil {
+				r, ok := msg.value.(R)
 				if ok {
-					f.unhandledResultHandler(r.value)
+					unhandledResultHandler(r)
 				}
 			}
 		}
@@ -124,8 +131,10 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		return
 	}
 	f.handler = handler
-	task := f.handle
-	f.submitter.Submit(ctx, task)
+	submitter := f.submitter
+	task := f
+	submitter.Submit(ctx, task)
+	f.submitter = nil
 	return
 }
 
@@ -136,7 +145,7 @@ func (f *futureImpl[R]) Complete(r R, err error) bool {
 		return false
 	}
 	if ch := f.ch; ch != nil {
-		ch.send(result[R]{value: r, err: err})
+		ch.send(r, err)
 		if ch.isOnce() {
 			f.available = false
 		}
@@ -161,8 +170,9 @@ func (f *futureImpl[R]) Cancel() {
 		f.locker.Unlock()
 		return
 	}
-	ch := f.ch
-	ch.cancel()
+	if ch := f.ch; ch != nil {
+		ch.cancel()
+	}
 	f.available = false
 	f.locker.Unlock()
 }

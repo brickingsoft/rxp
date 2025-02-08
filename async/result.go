@@ -17,16 +17,16 @@ type Result[E any] interface {
 	Error() error
 }
 
-type result[E any] struct {
+type entry[E any] struct {
 	value E
 	err   error
 }
 
-func (r result[E]) Value() E {
+func (r entry[E]) Value() E {
 	return r.value
 }
 
-func (r result[E]) Error() error {
+func (r entry[E]) Error() error {
 	return r.err
 }
 
@@ -35,7 +35,7 @@ func (r result[E]) Error() error {
 //
 // ctx: 来自构建 Promise 是的上下文。
 //
-// result: 来自 Promise.Succeed() 的结果。
+// entry: 来自 Promise.Succeed() 的结果。
 //
 // err: 来自 Promise.Failed() 的错误，或者 Promise.Cancel() 的结果，也可能是 Context.Err() 等。
 type ResultHandler[R any] func(ctx context.Context, result R, err error)

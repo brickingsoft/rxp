@@ -133,16 +133,21 @@ func releaseChannel(c *channel) {
 	}
 }
 
+type message struct {
+	value any
+	err   error
+}
+
 func newChannel(size int) *channel {
 	c := &channel{
-		ch:       make(chan any, size),
+		ch:       make(chan message, size),
 		deadline: time.Time{},
 	}
 	return c
 }
 
 type channel struct {
-	ch       chan any
+	ch       chan message
 	deadline time.Time
 }
 
@@ -166,7 +171,7 @@ func (c *channel) setDeadline(deadline time.Time) {
 	c.deadline = deadline
 }
 
-func (c *channel) get() any {
+func (c *channel) get() message {
 	return <-c.ch
 }
 
@@ -179,11 +184,7 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 				err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 				break
 			}
-			if rErr, isErr := r.(error); isErr {
-				err = errors.From(rErr, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-				break
-			}
-			v = r
+			v, err = r.value, r.err
 			break
 		case <-ctx.Done():
 			if exec, has := rxp.TryFrom(ctx); has {
@@ -238,10 +239,10 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 	return
 }
 
-func (c *channel) send(v any) {
-	c.ch <- v
+func (c *channel) send(v any, err error) {
+	c.ch <- message{v, err}
 }
 
 func (c *channel) cancel() {
-	c.ch <- Canceled
+	c.ch <- message{nil, errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))}
 }

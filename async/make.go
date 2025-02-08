@@ -21,10 +21,6 @@ type Option func(*Options)
 // 无限流的特性是可以无限次完成许诺，而不是一次。
 //
 // 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
-//
-// 关于许诺值，如果它实现了 io.Closer ，则当 Promise.Cancel 后且它未没处理，那么会自动 转化为 io.Closer 进行关闭。
-//
-// 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func WithStream() Option {
 	return WithStreamAndSize(defaultStreamChannelSize)
 }
@@ -134,19 +130,15 @@ func getOptions(ctx context.Context) Options {
 }
 
 // Make
-// 构建一个许诺
+// 构建一个许诺。
+//
+// 如果 rxp.Executors 不可用，则返回 rxp.ErrBusy。
 //
 // 流式许诺：使用 WithStream 进行设置。
 //
-// 普通模式：使用 WithNormalMode 进行设置，这是默认的。
+// 设置等待协程分配时长：使用 WithWaitTimeout 进行设置，只适用于普通模式，当超时后返回 rxp.ErrBusy。
 //
-// 无限制模式：使用 WithUnlimitedMode 进行设置。
-//
-// 直接模式：使用 WithDirectMode 进行设置。
-//
-// 设置等待协程分配时长：使用 WithWaitTimeout 进行设置，只适用于普通模式，当超时后返回 Busy。
-//
-// 无限等待协程分配：使用 WithWait 进行设置，只适用于普通模式。
+// 无限等待协程分配：使用 WithWait 进行设置。
 //
 // 设置超时：使用 WithDeadline 或 WithTimeout，它会覆盖 WithWaitTimeout 或 WithWait。
 func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
@@ -208,6 +200,9 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		if stopped {
 			break
 		}
+	}
+	if timer != nil {
+		releaseTimer(timer)
 	}
 	return
 }

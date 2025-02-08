@@ -9,14 +9,16 @@ import (
 const maxBackoff = 16
 
 func New() sync.Locker {
-	return new(spinLock)
+	return &Locker{
+		n: atomic.Int64{},
+	}
 }
 
-type spinLock struct {
+type Locker struct {
 	n atomic.Int64
 }
 
-func (sl *spinLock) Lock() {
+func (sl *Locker) Lock() {
 	backoff := 1
 	for !sl.n.CompareAndSwap(0, 1) {
 		for i := 0; i < backoff; i++ {
@@ -28,6 +30,6 @@ func (sl *spinLock) Lock() {
 	}
 }
 
-func (sl *spinLock) Unlock() {
+func (sl *Locker) Unlock() {
 	sl.n.Store(0)
 }

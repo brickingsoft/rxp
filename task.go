@@ -41,7 +41,11 @@ func TryGetTaskSubmitter(ctx context.Context) (TaskSubmitter, error) {
 
 // Task
 // 任务
-type Task func(ctx context.Context)
+type Task interface {
+	// Handle
+	// 执行任务
+	Handle(ctx context.Context)
+}
 
 // TaskSubmitter
 // 任务提交器

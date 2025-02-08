@@ -119,7 +119,7 @@ func (exec *alone) Close() (err error) {
 
 func (exec *alone) Submit(ctx context.Context, task Task) {
 	go func(ctx context.Context, task Task, exec *alone) {
-		task(ctx)
+		task.Handle(ctx)
 		exec.goroutines.Decr()
 	}(ctx, task, exec)
 	return

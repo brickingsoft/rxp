@@ -261,7 +261,7 @@ func (exec *share) handle(submitter *submitterImpl) {
 			break
 		}
 		ctx := exec.ctx
-		task(ctx)
+		task.Handle(ctx)
 		if !exec.release(submitter) {
 			break
 		}

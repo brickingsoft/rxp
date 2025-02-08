@@ -5,9 +5,10 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
-	"sync"
 )
 
+// Reduce
+// 回收多个 Future 至一个 Future。
 func Reduce[R []Result[E], E any](ctx context.Context, futures []Future[E]) (future Future[R]) {
 	promise, promiseErr := Make[R](ctx)
 	if promiseErr != nil {
@@ -38,7 +39,7 @@ func Reduce[R []Result[E], E any](ctx context.Context, futures []Future[E]) (fut
 		promise: promise,
 		members: members,
 		remains: len(members),
-		locker:  spin.New(),
+		locker:  spin.Locker{},
 		ch:      make(chan Result[E], futuresLen),
 	}
 
@@ -54,7 +55,7 @@ type reducer[R []Result[E], E any] struct {
 	promise Promise[R]
 	members []Future[E]
 	remains int
-	locker  sync.Locker
+	locker  spin.Locker
 	ch      chan Result[E]
 }
 
@@ -62,10 +63,10 @@ func (reduce *reducer[R, E]) Reduce(ctx context.Context) error {
 	for _, member := range reduce.members {
 		member.OnComplete(reduce.OnComplete)
 	}
-	return rxp.Execute(ctx, reduce.await)
+	return rxp.Execute(ctx, reduce)
 }
 
-func (reduce *reducer[R, E]) await(_ context.Context) {
+func (reduce *reducer[R, E]) Handle(_ context.Context) {
 	rs := make(R, 0, reduce.remains)
 	for {
 		r, ok := <-reduce.ch
@@ -79,7 +80,7 @@ func (reduce *reducer[R, E]) await(_ context.Context) {
 
 func (reduce *reducer[R, E]) OnComplete(_ context.Context, value E, err error) {
 	reduce.locker.Lock()
-	reduce.ch <- result[E]{
+	reduce.ch <- entry[E]{
 		value: value,
 		err:   err,
 	}

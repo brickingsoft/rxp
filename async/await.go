@@ -18,7 +18,7 @@ type Awaitable[R any] interface {
 func AwaitableFuture[R any](future Future[R]) Awaitable[R] {
 	af := &awaitableFuture[R]{
 		future: future,
-		ch:     make(chan result[R], 1),
+		ch:     make(chan entry[R], 1),
 	}
 	future.OnComplete(af.handle)
 	return af
@@ -26,7 +26,7 @@ func AwaitableFuture[R any](future Future[R]) Awaitable[R] {
 
 type awaitableFuture[R any] struct {
 	future Future[R]
-	ch     chan result[R]
+	ch     chan entry[R]
 }
 
 func (af *awaitableFuture[R]) Await() (r R, err error) {
@@ -45,7 +45,7 @@ func (af *awaitableFuture[R]) handle(_ context.Context, r R, err error) {
 		close(ch)
 		return
 	}
-	ch <- result[R]{
+	ch <- entry[R]{
 		value: r,
 		err:   err,
 	}
