@@ -96,7 +96,13 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 
 	ctx := f.ctx
 	if f.handler != nil {
-		handler(ctx, *(new(R)), errors.New("handler already set", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
+		var r R
+		err := errors.From(
+			Canceled,
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.New("on complete failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define("handler already set")))),
+		)
+		handler(ctx, r, err)
 		return
 	}
 
