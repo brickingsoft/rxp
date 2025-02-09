@@ -32,7 +32,7 @@ func releaseTimer(timer *time.Timer) {
 }
 
 var (
-	defaultStreamChannelSize = runtime.NumCPU() * 2
+	defaultStreamChannelSize = runtime.NumCPU()
 )
 
 var (
@@ -85,8 +85,6 @@ func acquireChannel(size int) *channel {
 }
 
 func releaseChannel(c *channel) {
-	// reset
-	c.deadline = time.Time{}
 	// put
 	size := c.size()
 	if size < 2 {

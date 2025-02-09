@@ -46,8 +46,8 @@ func TestCloseAfterMake(t *testing.T) {
 	ctx := exec.Context()
 	defer func() {
 		err := exec.Close()
-		if err != nil {
-			t.Error(err)
+		if err == nil {
+			t.Error("not closed")
 		}
 	}()
 
@@ -99,14 +99,14 @@ func TestFailedWithResult(t *testing.T) {
 	})
 }
 
-// BenchmarkMake
+// BenchmarkMake_Share
 // goos: windows
 // goarch: amd64
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
-// BenchmarkMake
-// BenchmarkMake-20    	 2270600	       485.9 ns/op	         0 failed	     137 B/op	       2 allocs/op
-func BenchmarkMake(b *testing.B) {
+// BenchmarkMake_Share
+// BenchmarkMake_Share-20    	 2270600	       485.9 ns/op	         0 failed	     137 B/op	       2 allocs/op
+func BenchmarkMake_Share(b *testing.B) {
 	b.ReportAllocs()
 
 	exec, execErr := rxp.New()

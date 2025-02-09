@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
-	"time"
 )
 
 // Future
@@ -15,33 +14,6 @@ type Future[R any] interface {
 	// 注册一个结果处理器，它是异步非堵塞的。
 	// 注意，这步是必须的且只能调用一次（除非使用 AwaitableFuture）。
 	OnComplete(handler ResultHandler[R])
-}
-
-type FutureOptions struct {
-	StreamBuffer int
-	Deadline     time.Time
-}
-
-func newFuture[R any](ctx context.Context, submitter rxp.TaskSubmitter, opts FutureOptions) *futureImpl[R] {
-	buffer := opts.StreamBuffer
-	if buffer < 1 {
-		buffer = 1
-	}
-	ch := acquireChannel(buffer)
-	if deadline := opts.Deadline; !deadline.IsZero() {
-		ch.setDeadline(deadline)
-	}
-	f := &futureImpl[R]{
-		ctx:                    ctx,
-		locker:                 spin.Locker{},
-		available:              true,
-		ch:                     ch,
-		submitter:              submitter,
-		handler:                nil,
-		errInterceptor:         nil,
-		unhandledResultHandler: nil,
-	}
-	return f
 }
 
 type futureImpl[R any] struct {

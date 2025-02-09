@@ -4,13 +4,15 @@ import (
 	"context"
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/pkg/rate/spin"
 	"runtime"
 	"time"
 )
 
 type Options struct {
-	WaitTimeout time.Duration
-	FutureOptions
+	WaitTimeout  time.Duration
+	StreamBuffer int
+	Deadline     time.Time
 }
 
 type Option func(*Options)
@@ -33,8 +35,8 @@ func WithStream() Option {
 // 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
 func WithStreamAndSize(buf int) Option {
 	return func(o *Options) {
-		if buf < 1 {
-			buf = 1
+		if buf < 2 {
+			buf = 2
 		}
 		o.StreamBuffer = buf
 	}
@@ -71,14 +73,15 @@ func WithDeadline(deadline time.Time) Option {
 		if deadline.IsZero() {
 			return
 		}
+		o.Deadline = deadline
 		timeout := time.Until(deadline)
 		if timeout < 1 {
+			o.WaitTimeout = 0
 			return
 		}
 		if o.WaitTimeout < 1 || o.WaitTimeout > timeout {
 			o.WaitTimeout = timeout
 		}
-		o.Deadline = deadline
 	}
 }
 
@@ -96,39 +99,6 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-type optionsCtxKey struct{}
-
-// WithOptions
-// 把 Make 的 Options 绑定到 context.Context。常用于设置上下文中的默认选项。
-func WithOptions(ctx context.Context, options ...Option) context.Context {
-	opt := Options{
-		WaitTimeout: 0,
-		FutureOptions: FutureOptions{
-			StreamBuffer: 1,
-			Deadline:     time.Time{},
-		},
-	}
-	for _, o := range options {
-		o(&opt)
-	}
-	return context.WithValue(ctx, optionsCtxKey{}, opt)
-}
-
-func getOptions(ctx context.Context) Options {
-	value := ctx.Value(optionsCtxKey{})
-	if value == nil {
-		return Options{
-			WaitTimeout: 0,
-			FutureOptions: FutureOptions{
-				StreamBuffer: 1,
-				Deadline:     time.Time{},
-			},
-		}
-	}
-	opt := value.(Options)
-	return opt
-}
-
 // Make
 // 构建一个许诺。
 //
@@ -142,51 +112,48 @@ func getOptions(ctx context.Context) Options {
 //
 // 设置超时：使用 WithDeadline 或 WithTimeout，它会覆盖 WithWaitTimeout 或 WithWait。
 func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err error) {
-	opt := getOptions(ctx)
+	opt := Options{
+		WaitTimeout:  0,
+		StreamBuffer: 1,
+		Deadline:     time.Time{},
+	}
 	for _, o := range options {
 		o(&opt)
 	}
-	// no timeout
-	if opt.WaitTimeout == 0 {
-		submitter, submitterErr := rxp.TryGetTaskSubmitter(ctx)
-		if submitterErr != nil {
-			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(submitterErr))
+
+	var submitter rxp.TaskSubmitter
+
+	waitTimeout := opt.WaitTimeout
+	if waitTimeout == 0 { // no timeout
+		if submitter, err = rxp.TryGetTaskSubmitter(ctx); err != nil {
+			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err))
 			return
 		}
-		p = newFuture[R](ctx, submitter, opt.FutureOptions)
-		return
-	}
-
-	// await or timeout
-	var timer *time.Timer
-	if timeout := opt.WaitTimeout; timeout > 0 {
-		timer = acquireTimer(timeout)
-	}
-	times := 10
-	stopped := false
-	for {
-		select {
-		case <-ctx.Done():
-			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(&UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}))
-			stopped = true
-			break
-		case <-timer.C:
-			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(rxp.ErrBusy))
-			stopped = true
-			break
-		default:
-			submitter, submitterErr := rxp.TryGetTaskSubmitter(ctx)
-			if submitterErr != nil {
-				if IsBusy(submitterErr) {
-					continue
-				}
-				err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(submitterErr))
+	} else if waitTimeout > 0 { // timeout
+		timer := acquireTimer(waitTimeout)
+		times := 10
+		stopped := false
+		for {
+			select {
+			case <-ctx.Done():
+				err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(&UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}))
 				stopped = true
 				break
-			}
-			if submitter != nil {
-				p = newFuture[R](ctx, submitter, opt.FutureOptions)
+			case <-timer.C:
+				err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(rxp.ErrBusy))
 				stopped = true
+				break
+			default:
+				if submitter, err = rxp.TryGetTaskSubmitter(ctx); err != nil {
+					if !IsBusy(err) {
+						err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err))
+						stopped = true
+					}
+					break
+				}
+				break
+			}
+			if stopped {
 				break
 			}
 			times--
@@ -195,14 +162,58 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 				runtime.Gosched()
 			}
 			time.Sleep(ns500)
-			break
 		}
-		if stopped {
-			break
+		releaseTimer(timer)
+		if err != nil {
+			return
+		}
+	} else { // wait
+		times := 10
+		stopped := false
+		for {
+			select {
+			case <-ctx.Done():
+				err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(&UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}))
+				stopped = true
+				break
+			default:
+				if submitter, err = rxp.TryGetTaskSubmitter(ctx); err != nil {
+					if !IsBusy(err) {
+						err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err))
+						stopped = true
+					}
+					break
+				}
+				break
+			}
+			if stopped {
+				break
+			}
+			times--
+			if times < 0 {
+				times = 10
+				runtime.Gosched()
+			}
+			time.Sleep(ns500)
+		}
+		if err != nil {
+			return
 		}
 	}
-	if timer != nil {
-		releaseTimer(timer)
+	// promise
+	buffer := opt.StreamBuffer
+	deadline := opt.Deadline
+	ch := acquireChannel(buffer)
+	ch.setDeadline(deadline)
+	p = &futureImpl[R]{
+		ctx:                    ctx,
+		locker:                 spin.Locker{},
+		available:              true,
+		ch:                     ch,
+		submitter:              submitter,
+		handler:                nil,
+		errInterceptor:         nil,
+		unhandledResultHandler: nil,
 	}
 	return
 }
