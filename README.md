@@ -8,11 +8,17 @@ go get -u github.com/brickingsoft/rxp
 
 ## 使用
 ```go
-executors := rxp.New()
-ctx := executors.Context()
-executors.TryExecute(ctx, func(ctx context.Context) {
+type Task struct {
+}
+
+func (task *Task) Handle(ctx context.Context) {
 	// do something
-})
+}
+```
+```go
+executors, err := rxp.New()
+ctx := executors.Context()
+executors.TryExecute(ctx, &Task{})
 err := executors.Close()
 ```
 
@@ -25,8 +31,9 @@ err := executors.Close()
 注意：其中的上下文必须是`Executors.Context()`或者通过`rxp.With()`后的。
 ```go
 // 尝试构建一个许诺
-promise, ok := async.Make[int](ctx)
-if !ok {
+promise, err := async.Make[int](ctx)
+if err != nil {
+	// hande err
     return
 }
 // 完成许诺，可以在任何地方完成。
@@ -40,32 +47,7 @@ future.OnComplete(func(ctx context.Context, entry int, cause error) {
 	// cause 是失败许诺的错误。
 })
 ```
-建议用法
-```go
-func Foo[int](ctx context.Context) (future async.Future[int]) {
-	promise, ok := async.Make[int](ctx)
-	if !ok {
-		future = async.FailedImmediately[int](ctx, errors.New("err"))
-		return
-	}
-	Bar(ctx).OnComplete(func(ctx context.Context, entry string, cause error) {
-	    if cause != nil {
-			promise.Failed(cause)
-			return
-		}
-		
-		// handle entry
-
-		promise.Succeed(1)
-		return
-	})
-}
-
-func Bar[string](ctx context.Context) (future async.Future[string]) { 
-	// do something
-}
-```
-## 压测
+## 压测（并行）
 环境
 ```shell
 // goos: windows
@@ -74,16 +56,19 @@ func Bar[string](ctx context.Context) (future async.Future[string]) {
 ```
 任务
 ```go
-func RandTask() {
+type RandTask struct {
+}
+
+func (task *RandTask) Handle(ctx context.Context) {
     rand.Float64()
 }
 ```
 结果
 
-| 项目                               | 数量      | ns/op | B/op | allocs/op | failed |
-|----------------------------------|---------|-------|------|-----------|--------|
-| BenchmarkExecutors_TryExecute-20 | 2680070 | 426.4 | 0    | 0         | 0      |
-| BenchmarkExecutors_Execute-20    | 2636208 | 429.0 | 0    | 0         | 0      |
+| 项目   | 数量      | ns/op | B/op | allocs/op | failed |
+|------|---------|-------|------|-----------|--------|
+| 共享模式 | 2680070 | 424.8 | 0    | 0         | 0      |
+| 独占模式 | 2636208 | 222.5 | 64   | 1         | 0      |
 
 对比
 
