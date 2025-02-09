@@ -151,6 +151,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 					}
 					break
 				}
+				stopped = true
 				break
 			}
 			if stopped {
@@ -184,6 +185,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 					}
 					break
 				}
+				stopped = true
 				break
 			}
 			if stopped {

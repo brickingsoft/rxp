@@ -25,7 +25,7 @@ func TestMake(t *testing.T) {
 		}
 	}()
 
-	promise, err := async.Make[int](ctx)
+	promise, err := async.Make[int](ctx, async.WithWait())
 	if err != nil {
 		t.Errorf("try promise failed")
 		return
