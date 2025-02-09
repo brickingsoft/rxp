@@ -93,15 +93,18 @@ func (f *futureImpl[R]) Handle(ctx context.Context) {
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	f.locker.Lock()
 	defer f.locker.Unlock()
-	if handler == nil {
-		panic(errors.New("handler is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
-		return
-	}
+
 	ctx := f.ctx
 	if f.handler != nil {
 		handler(ctx, *(new(R)), errors.New("handler already set", errors.WithMeta(errMetaPkgKey, errMetaPkgVal)))
 		return
 	}
+
+	if handler == nil {
+		handler = func(ctx context.Context, result R, err error) {}
+		return
+	}
+
 	f.handler = handler
 	submitter := f.submitter
 	task := f
