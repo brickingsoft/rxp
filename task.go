@@ -30,9 +30,9 @@ func TryGetTaskSubmitter(ctx context.Context) (TaskSubmitter, error) {
 		}
 		if exec := value.(Executors); exec != nil {
 			if exec.Running() {
-				return nil, errors.From(ErrBusy, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+				return nil, errors.From(ErrBusy)
 			}
-			return nil, errors.From(ErrClosed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+			return nil, errors.From(ErrClosed)
 		}
 		return nil, errors.New("invalid executors in context")
 	}

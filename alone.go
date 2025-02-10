@@ -105,13 +105,13 @@ func (exec *alone) Close() (err error) {
 		waitErr := exec.goroutines.WaitDownTo(waitCtx, 0)
 		waitCtxCancel()
 		if waitErr != nil {
-			err = errors.From(ErrCloseFailed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(waitErr))
+			err = errors.From(ErrCloseFailed, errors.WithWrap(waitErr))
 			return
 		}
 		return
 	}
 	if waitErr := exec.goroutines.WaitDownTo(ctx, 0); waitErr != nil {
-		err = errors.From(ErrCloseFailed, errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(waitErr))
+		err = errors.From(ErrCloseFailed, errors.WithWrap(waitErr))
 		return
 	}
 	return

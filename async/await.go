@@ -32,7 +32,7 @@ type awaitableFuture[R any] struct {
 func (af *awaitableFuture[R]) Await() (r R, err error) {
 	ar, ok := <-af.ch
 	if !ok {
-		err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+		err = errors.From(Canceled)
 		return
 	}
 	r, err = ar.Value(), ar.Error()

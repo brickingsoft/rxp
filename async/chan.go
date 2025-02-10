@@ -179,7 +179,7 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		select {
 		case r, ok := <-c.ch:
 			if !ok {
-				err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+				err = errors.From(Canceled)
 				break
 			}
 			v, err = r.value, r.err
@@ -187,12 +187,12 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		case <-ctx.Done():
 			if exec, has := rxp.TryFrom(ctx); has {
 				if exec.Running() {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					err = errors.From(Canceled, errors.WithWrap(&UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}))
 				} else {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), ExecutorsClosed)
+					err = errors.From(Canceled, errors.WithWrap(ExecutorsClosed))
 				}
 			} else {
-				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+				err = errors.From(Canceled, errors.WithWrap(&UnexpectedContextError{ctx.Err(), UnexpectedContextFailed}))
 			}
 			break
 		}
@@ -201,14 +201,14 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 		if timeout < 1 {
 			err = &DeadlineExceededError{Deadline: deadline, Err: DeadlineExceeded}
 			if c.isOnce() {
-				err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), err)
+				err = errors.From(Canceled, errors.WithWrap(err))
 			}
 		} else {
 			timer := acquireTimer(timeout)
 			select {
 			case r, ok := <-c.ch:
 				if !ok {
-					err = errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+					err = errors.From(Canceled)
 					break
 				}
 				v = r
@@ -216,18 +216,18 @@ func (c *channel) receive(ctx context.Context) (v any, err error) {
 			case deadline = <-timer.C:
 				err = &DeadlineExceededError{Deadline: deadline, Err: DeadlineExceeded}
 				if c.isOnce() {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), err)
+					err = errors.From(Canceled, errors.WithWrap(err))
 				}
 				break
 			case <-ctx.Done():
 				if exec, has := rxp.TryFrom(ctx); has {
 					if exec.Running() {
-						err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+						err = errors.Join(errors.From(Canceled), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 					} else {
-						err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), ExecutorsClosed)
+						err = errors.Join(errors.From(Canceled), ExecutorsClosed)
 					}
 				} else {
-					err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
+					err = errors.Join(errors.From(Canceled), &UnexpectedContextError{ctx.Err(), UnexpectedContextFailed})
 				}
 				break
 			}
@@ -242,5 +242,5 @@ func (c *channel) send(v any, err error) {
 }
 
 func (c *channel) cancel() {
-	c.ch <- message{nil, errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal))}
+	c.ch <- message{nil, errors.From(Canceled)}
 }

@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	Canceled                = errors.Define("promise canceled")
-	DeadlineExceeded        = errors.Define("deadline exceeded")
-	UnexpectedContextFailed = errors.Define("unexpected context failed")
+	Canceled                = errors.Define("promise canceled", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	DeadlineExceeded        = errors.Define("deadline exceeded", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	UnexpectedContextFailed = errors.Define("unexpected context failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	ExecutorsClosed         = rxp.ErrClosed
 )
 

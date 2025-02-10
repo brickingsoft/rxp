@@ -20,6 +20,7 @@ type futureImpl[R any] struct {
 	ctx                    context.Context
 	locker                 spin.Locker
 	available              bool
+	buffer                 int
 	ch                     *channel
 	submitter              rxp.TaskSubmitter
 	handler                ResultHandler[R]
@@ -56,7 +57,7 @@ func (f *futureImpl[R]) Handle(ctx context.Context) {
 		rv, ok := e.(R)
 		if !ok {
 			var r R
-			err = errors.Join(errors.From(Canceled, errors.WithMeta(errMetaPkgKey, errMetaPkgVal)), errors.New("type of entry is unexpected", errors.WithMeta("rxp", "async")))
+			err = errors.Join(errors.From(Canceled), errors.New("type of entry is unexpected", errors.WithMeta("rxp", "async")))
 			if errInterceptor != nil {
 				errInterceptor(ctx, r, err).OnComplete(handler)
 			} else {
@@ -99,7 +100,6 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		var r R
 		err := errors.From(
 			Canceled,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(errors.New("on complete failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define("handler already set")))),
 		)
 		handler(ctx, r, err)
@@ -168,4 +168,8 @@ func (f *futureImpl[R]) SetUnhandledResultHandler(handler UnhandledResultHandler
 
 func (f *futureImpl[R]) Future() Future[R] {
 	return f
+}
+
+func (f *futureImpl[R]) StreamMode() bool {
+	return f.buffer > 1
 }

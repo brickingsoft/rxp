@@ -13,11 +13,11 @@ import (
 
 var (
 	// ErrClosed 执行池已关闭
-	ErrClosed = errors.Define("executors has been closed")
+	ErrClosed = errors.Define("executors has been closed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	// ErrCloseFailed 关闭执行池失败（一般是关闭超时引发）
-	ErrCloseFailed = errors.Define("executors close failed")
+	ErrCloseFailed = errors.Define("executors close failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	// ErrBusy 无可用协程
-	ErrBusy = errors.Define("executors is busy")
+	ErrBusy = errors.Define("executors are busy", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 )
 
 // IsClosed

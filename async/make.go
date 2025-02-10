@@ -211,6 +211,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		ctx:                    ctx,
 		locker:                 spin.Locker{},
 		available:              true,
+		buffer:                 buffer,
 		ch:                     ch,
 		submitter:              submitter,
 		handler:                nil,
