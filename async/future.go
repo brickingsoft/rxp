@@ -108,7 +108,6 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 
 	if handler == nil {
 		handler = func(ctx context.Context, result R, err error) {}
-		return
 	}
 
 	f.handler = handler
