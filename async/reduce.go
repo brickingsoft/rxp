@@ -8,21 +8,36 @@ import (
 )
 
 // Reduce
-// 回收多个 Future 至一个 Future。
-func Reduce[R []Result[E], E any](ctx context.Context, futures []Future[E]) (future Future[R]) {
-	promise, promiseErr := Make[R](ctx)
-	if promiseErr != nil {
-		future = FailedImmediately[R](ctx, promiseErr)
-		return
-	}
-	future = promise.Future()
+// 回收多个 Future 至一个 Future。 注意：不能回收流。
+func Reduce[R []Result[E], E any](ctx context.Context, futures []Future[E]) (reduced Future[R]) {
 
 	futuresLen := len(futures)
 	if futuresLen == 0 {
 		err := errors.New("reduce failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define("futures are empty")))
-		promise.Fail(err)
+		reduced = FailedImmediately[R](ctx, err)
 		return
 	}
+
+	for _, future := range futures {
+		if future == nil {
+			reduced = FailedImmediately[R](ctx, errors.New("reduce failed", errors.WithMeta(errMetaPkgKey, errMetaPkgKey), errors.WithWrap(errors.Define("one of futures is nil"))))
+			return
+		}
+		if mode, ok := future.(interface{ StreamMode() bool }); ok {
+			if stream := mode.StreamMode(); stream {
+				reduced = FailedImmediately[R](ctx, errors.New("reduce failed", errors.WithMeta(errMetaPkgKey, errMetaPkgKey), errors.WithWrap(errors.Define("one of futures is stream mode"))))
+				return
+			}
+		}
+	}
+
+	promise, promiseErr := Make[R](ctx)
+	if promiseErr != nil {
+		reduced = FailedImmediately[R](ctx, promiseErr)
+		return
+	}
+	reduced = promise.Future()
+
 	members := make([]Future[E], 0, 1)
 	for i := 0; i < futuresLen; i++ {
 		if member := futures[i]; member != nil {
