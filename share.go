@@ -52,7 +52,7 @@ func (exec *share) Execute(ctx context.Context, task Task) (err error) {
 			break
 		}
 		if !exec.running.Load() {
-			err = ErrClosed
+			err = errors.From(ErrClosed)
 			return
 		}
 		time.Sleep(ns500)
