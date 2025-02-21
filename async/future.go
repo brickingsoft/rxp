@@ -3,7 +3,6 @@ package async
 import (
 	"context"
 	"github.com/brickingsoft/errors"
-	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/rate/spin"
 )
 
@@ -22,16 +21,15 @@ type futureImpl[R any] struct {
 	available              bool
 	buffer                 int
 	ch                     *channel
-	submitter              rxp.TaskSubmitter
-	handler                ResultHandler[R]
 	errInterceptor         ErrInterceptor[R]
 	unhandledResultHandler UnhandledResultHandler[R]
 }
 
 func (f *futureImpl[R]) Handle(ctx context.Context) {
 	ch := f.ch
-	handler := f.handler
 	errInterceptor := f.errInterceptor
+	hi := <-ch.hch
+	handler := hi.(ResultHandler[R])
 	for {
 		e, err := ch.receive(ctx)
 		if err != nil {
@@ -95,8 +93,12 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	f.locker.Lock()
 	defer f.locker.Unlock()
 
+	if handler == nil {
+		handler = func(ctx context.Context, result R, err error) {}
+	}
 	ctx := f.ctx
-	if f.handler != nil {
+	ch := f.ch
+	if ch.hset {
 		var r R
 		err := errors.From(
 			Canceled,
@@ -105,16 +107,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		handler(ctx, r, err)
 		return
 	}
-
-	if handler == nil {
-		handler = func(ctx context.Context, result R, err error) {}
-	}
-
-	f.handler = handler
-	submitter := f.submitter
-	task := f
-	submitter.Submit(ctx, task)
-	f.submitter = nil
+	ch.hch <- handler
 	return
 }
 

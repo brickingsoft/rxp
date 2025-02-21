@@ -15,7 +15,8 @@ func TestTryPromise_CompleteErr(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -41,7 +42,8 @@ func TestTryPromise_Cancel(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -77,7 +79,8 @@ func TestTryPromise_Timeout(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -134,7 +137,8 @@ func TestStreamPromises_WithErrInterceptor(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {

@@ -1,6 +1,7 @@
 package rxp_test
 
 import (
+	"context"
 	"github.com/brickingsoft/rxp"
 	"sync/atomic"
 	"testing"
@@ -14,7 +15,7 @@ func TestAlone_TryExecute(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	ctx := executors.Context()
+	ctx := context.Background()
 	defer func(executors rxp.Executors) {
 		err = executors.Close()
 		if err != nil {
@@ -26,7 +27,7 @@ func TestAlone_TryExecute(t *testing.T) {
 	}(executors)
 	submitted := 0
 	for i := 0; i < tasks; i++ {
-		if executors.TryExecute(ctx, &randTask{}) {
+		if err = executors.TryExecute(ctx, &randTask{}); err == nil {
 			submitted++
 		}
 	}
@@ -43,7 +44,7 @@ func BenchmarkAlone_Execute_Parallel(b *testing.B) {
 		b.Error(err)
 		return
 	}
-	ctx := executors.Context()
+	ctx := context.Background()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -70,7 +71,7 @@ func BenchmarkAlone_Execute(b *testing.B) {
 		b.Error(err)
 		return
 	}
-	ctx := executors.Context()
+	ctx := context.Background()
 	failed := new(atomic.Int64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

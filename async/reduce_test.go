@@ -14,7 +14,8 @@ func TestReduce(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {

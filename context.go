@@ -44,13 +44,10 @@ func TryFrom(ctx context.Context) (Executors, bool) {
 // 尝试执行一个任务
 //
 // 注意，必须先 With 。
-func TryExecute(ctx context.Context, task Task) bool {
-	if task == nil {
-		return false
-	}
+func TryExecute(ctx context.Context, task Task) error {
 	exec, ok := TryFrom(ctx)
 	if !ok {
-		return false
+		return errors.New("there is no executors in context", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	}
 	return exec.TryExecute(ctx, task)
 }
@@ -59,14 +56,10 @@ func TryExecute(ctx context.Context, task Task) bool {
 // 执行一个任务
 //
 // 注意，必须先 With 。
-func Execute(ctx context.Context, task Task) (err error) {
-	if task == nil {
-		return
-	}
+func Execute(ctx context.Context, task Task) error {
 	exec, ok := TryFrom(ctx)
 	if !ok {
 		return errors.New("there is no executors in context", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	}
-	err = exec.Execute(ctx, task)
-	return
+	return exec.Execute(ctx, task)
 }

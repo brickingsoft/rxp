@@ -14,7 +14,8 @@ func TestBarrier_Do(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -46,7 +47,8 @@ func TestBarrier_Forget(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {

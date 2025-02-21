@@ -17,7 +17,8 @@ func TestMake(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -43,7 +44,8 @@ func TestCloseAfterMake(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err == nil {
@@ -79,7 +81,8 @@ func TestFailedWithResult(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -114,7 +117,8 @@ func BenchmarkMake_Share(b *testing.B) {
 		b.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 
 	failed := new(atomic.Int64)
 	b.ResetTimer()
@@ -152,7 +156,8 @@ func BenchmarkMake_Alone(b *testing.B) {
 		b.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 
 	failed := new(atomic.Int64)
 	b.ResetTimer()

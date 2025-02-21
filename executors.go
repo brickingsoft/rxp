@@ -15,6 +15,14 @@ const (
 	ns500 = 500 * time.Nanosecond
 )
 
+// Task
+// 任务
+type Task interface {
+	// Handle
+	// 执行任务
+	Handle(ctx context.Context)
+}
+
 type Mode int
 
 const (
@@ -29,27 +37,25 @@ const (
 // Executors
 // 执行池
 //
-// 一个 goroutine 池。每个 goroutine 具备一个 TaskSubmitter，通过 TaskSubmitter.Submit 进行任务提交。
-//
 // 当 goroutine 在 MaxGoroutineIdleDuration 后没有新任务，则会释放。
 type Executors interface {
-	// Context
-	// 根上下文，。
-	Context() context.Context
 	// TryExecute
-	// 尝试执行一个任务，如果 goroutine 已满载，则返回 false。
-	TryExecute(ctx context.Context, task Task) (ok bool)
+	// 尝试执行一个任务。
+	TryExecute(ctx context.Context, task Task) (err error)
 	// Execute
 	// 执行一个任务，如果 goroutine 已满载，则等待有空闲的。
 	//
-	// 当 context.Context 有错误或者 Executors.Close、Executors.CloseGracefully，则返回错误。
+	// 当 context.Context 有错误或者 Executors.Close，则返回错误。
 	Execute(ctx context.Context, task Task) (err error)
+	// Done
+	// 结束通道。
+	Done() <-chan struct{}
 	// Goroutines
 	// 当前 goroutine 数量
 	Goroutines() (n int64)
-	// Available
-	// 是否存在剩余 goroutine 或 是否运行中
-	Available() bool
+	// GoroutinesLeft
+	// 剩余 goroutine 数量
+	GoroutinesLeft() int64
 	// Running
 	// 是否运行中
 	Running() bool
@@ -65,7 +71,6 @@ type Executors interface {
 // 创建执行池
 func New(options ...Option) (Executors, error) {
 	opts := Options{
-		Ctx:                            nil,
 		Mode:                           ShareMode,
 		MaxprocsOptions:                maxprocs.Options{},
 		MaxGoroutines:                  defaultMaxGoroutines,
@@ -84,34 +89,24 @@ func New(options ...Option) (Executors, error) {
 	if procsErr != nil {
 		return nil, errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(procsErr))
 	}
-	rootCtx := opts.Ctx
-	if rootCtx == nil {
-		rootCtx = context.Background()
-	}
-	ctx, cancel := context.WithCancel(rootCtx)
 
 	switch opts.Mode {
 	case ShareMode:
 		exec := &share{
-			ctx:                            nil,
-			ctxCancel:                      cancel,
 			maxGoroutines:                  int64(opts.MaxGoroutines),
 			maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
-			locker:                         spin.New(),
-			running:                        new(atomic.Bool),
+			locker:                         spin.Locker{},
+			running:                        atomic.Bool{},
 			ready:                          nil,
 			submitters:                     sync.Pool{},
-			goroutines:                     counter.New(),
+			goroutines:                     counter.Counter{},
 			closeTimeout:                   opts.CloseTimeout,
 			undo:                           undo,
 		}
-		exec.ctx = With(ctx, exec)
 		exec.start()
 		return exec, nil
 	case AloneMode:
 		exec := &alone{
-			ctx:           nil,
-			ctxCancel:     cancel,
 			maxGoroutines: int64(opts.MaxGoroutines),
 			locker:        spin.New(),
 			running:       new(atomic.Bool),
@@ -119,12 +114,41 @@ func New(options ...Option) (Executors, error) {
 			closeTimeout:  opts.CloseTimeout,
 			undo:          undo,
 		}
-		exec.ctx = With(ctx, exec)
 		exec.start()
 		return exec, nil
 	default:
 		undo()
-		cancel()
 		return nil, errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define("invalid mode")))
 	}
+}
+
+type taskEntry struct {
+	ctx  context.Context
+	task Task
+}
+
+type taskSubmitter struct {
+	lastUseTime time.Time
+	ch          chan taskEntry
+}
+
+func (submitter *taskSubmitter) submit(ctx context.Context, done <-chan struct{}, task Task) (err error) {
+	select {
+	case <-done:
+		err = ErrClosed
+		break
+	case <-ctx.Done():
+		err = ctx.Err()
+		break
+	case submitter.ch <- taskEntry{
+		ctx:  ctx,
+		task: task,
+	}:
+		break
+	}
+	return
+}
+
+func (submitter *taskSubmitter) stop() {
+	submitter.ch <- taskEntry{task: nil}
 }

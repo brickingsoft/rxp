@@ -1,6 +1,7 @@
 package async_test
 
 import (
+	"context"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"sync"
@@ -14,7 +15,8 @@ func TestAwait(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -42,7 +44,8 @@ func TestPromise_Await(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -70,7 +73,8 @@ func TestStreamPromise_Await(t *testing.T) {
 		t.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 	defer func() {
 		err := exec.Close()
 		if err != nil {
@@ -116,7 +120,8 @@ func BenchmarkAwaitableFuture(b *testing.B) {
 		b.Fatal(execErr)
 		return
 	}
-	ctx := exec.Context()
+	ctx := context.Background()
+	ctx = rxp.With(ctx, exec)
 
 	failed := new(atomic.Int64)
 	b.ResetTimer()

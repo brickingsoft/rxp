@@ -121,11 +121,26 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		o(&opt)
 	}
 
-	var submitter rxp.TaskSubmitter
+	// future
+	buffer := opt.StreamBuffer
+	deadline := opt.Deadline
+	ch := acquireChannel(buffer)
+	ch.setDeadline(deadline)
+	future := &futureImpl[R]{
+		ctx:                    ctx,
+		locker:                 spin.Locker{},
+		available:              true,
+		buffer:                 buffer,
+		ch:                     ch,
+		errInterceptor:         nil,
+		unhandledResultHandler: nil,
+	}
 
 	waitTimeout := opt.WaitTimeout
 	if waitTimeout == 0 { // no timeout
-		if submitter, err = rxp.TryGetTaskSubmitter(ctx); err != nil {
+		if err = rxp.TryExecute(ctx, future); err != nil {
+			future.ch = nil
+			releaseChannel(ch)
 			err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err))
 			return
 		}
@@ -144,7 +159,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 				stopped = true
 				break
 			default:
-				if submitter, err = rxp.TryGetTaskSubmitter(ctx); err != nil {
+				if err = rxp.TryExecute(ctx, future); err != nil {
 					if !IsBusy(err) {
 						err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err))
 						stopped = true
@@ -166,6 +181,8 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 		}
 		releaseTimer(timer)
 		if err != nil {
+			future.ch = nil
+			releaseChannel(ch)
 			return
 		}
 	} else { // wait
@@ -178,7 +195,7 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 				stopped = true
 				break
 			default:
-				if submitter, err = rxp.TryGetTaskSubmitter(ctx); err != nil {
+				if err = rxp.TryExecute(ctx, future); err != nil {
 					if !IsBusy(err) {
 						err = errors.New("make failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err))
 						stopped = true
@@ -199,24 +216,12 @@ func Make[R any](ctx context.Context, options ...Option) (p Promise[R], err erro
 			time.Sleep(ns500)
 		}
 		if err != nil {
+			future.ch = nil
+			releaseChannel(ch)
 			return
 		}
 	}
-	// promise
-	buffer := opt.StreamBuffer
-	deadline := opt.Deadline
-	ch := acquireChannel(buffer)
-	ch.setDeadline(deadline)
-	p = &futureImpl[R]{
-		ctx:                    ctx,
-		locker:                 spin.Locker{},
-		available:              true,
-		buffer:                 buffer,
-		ch:                     ch,
-		submitter:              submitter,
-		handler:                nil,
-		errInterceptor:         nil,
-		unhandledResultHandler: nil,
-	}
+
+	p = future
 	return
 }

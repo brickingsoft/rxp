@@ -5,6 +5,7 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"github.com/brickingsoft/rxp/pkg/rate/counter"
+	"github.com/brickingsoft/rxp/pkg/rate/spin"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -12,32 +13,32 @@ import (
 )
 
 type share struct {
-	ctx                            context.Context
-	ctxCancel                      context.CancelFunc
+	running                        atomic.Bool
+	locker                         spin.Locker
+	ready                          []*taskSubmitter
+	submitters                     sync.Pool
+	goroutines                     counter.Counter
 	maxGoroutines                  int64
 	maxReadyGoroutinesIdleDuration time.Duration
-	locker                         sync.Locker
-	running                        *atomic.Bool
-	ready                          []*submitterImpl
-	submitters                     sync.Pool
-	goroutines                     *counter.Counter
 	closeTimeout                   time.Duration
-	stopCh                         chan struct{}
+	done                           chan struct{}
 	undo                           maxprocs.Undo
 }
 
-func (exec *share) Context() context.Context {
-	return exec.ctx
-}
-
-func (exec *share) TryExecute(ctx context.Context, task Task) bool {
-	if task == nil || !exec.Available() {
-		return false
+func (exec *share) TryExecute(ctx context.Context, task Task) error {
+	if task == nil {
+		return errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	}
-	if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
-		submitter.Submit(ctx, task)
+	if !exec.running.Load() {
+		return ErrClosed
 	}
-	return true
+	if exec.goroutines.Value() >= exec.maxGoroutines {
+		return ErrBusy
+	}
+	if submitter := exec.tryGetTaskSubmitter(); submitter != nil {
+		return submitter.submit(ctx, exec.done, task)
+	}
+	return ErrBusy
 }
 
 func (exec *share) Execute(ctx context.Context, task Task) (err error) {
@@ -47,22 +48,26 @@ func (exec *share) Execute(ctx context.Context, task Task) (err error) {
 	}
 	times := 10
 	for {
-		if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
-			submitter.Submit(ctx, task)
+		err = exec.TryExecute(ctx, task)
+		if err == nil {
 			break
 		}
-		if !exec.running.Load() {
-			err = errors.From(ErrClosed)
-			return
+		if IsBusy(err) {
+			time.Sleep(ns500)
+			times--
+			if times < 0 {
+				times = 10
+				runtime.Gosched()
+			}
+			continue
 		}
-		time.Sleep(ns500)
-		times--
-		if times < 0 {
-			times = 10
-			runtime.Gosched()
-		}
+		break
 	}
 	return
+}
+
+func (exec *share) Done() <-chan struct{} {
+	return exec.done
 }
 
 func (exec *share) Goroutines() (n int64) {
@@ -70,20 +75,15 @@ func (exec *share) Goroutines() (n int64) {
 	return
 }
 
-func (exec *share) Available() bool {
-	return exec.running.Load() && exec.goroutines.Value() <= exec.maxGoroutines
+func (exec *share) GoroutinesLeft() int64 {
+	return exec.maxGoroutines - exec.goroutines.Value()
 }
 
 func (exec *share) Running() bool {
 	return exec.running.Load()
 }
 
-func (exec *share) TryGetTaskSubmitter() (v TaskSubmitter) {
-	if !exec.running.Load() {
-		return
-	}
-
-	var submitter *submitterImpl
+func (exec *share) tryGetTaskSubmitter() (submitter *taskSubmitter) {
 	createExecutor := false
 
 	exec.locker.Lock()
@@ -91,7 +91,7 @@ func (exec *share) TryGetTaskSubmitter() (v TaskSubmitter) {
 	ready := exec.ready
 	n := len(ready) - 1
 	if n < 0 {
-		if exec.Available() {
+		if exec.goroutines.Value() < exec.maxGoroutines {
 			exec.goroutines.Incr()
 			createExecutor = true
 		}
@@ -101,19 +101,19 @@ func (exec *share) TryGetTaskSubmitter() (v TaskSubmitter) {
 		exec.ready = ready[:n]
 	}
 	exec.locker.Unlock()
+
 	if submitter == nil {
 		if !createExecutor {
 			return
 		}
 		vch := exec.submitters.Get()
-		submitter = vch.(*submitterImpl)
-		go func(exec *share, submitter *submitterImpl) {
+		submitter = vch.(*taskSubmitter)
+		go func(exec *share, submitter *taskSubmitter) {
 			exec.handle(submitter)
 			exec.submitters.Put(submitter)
 			exec.goroutines.Decr()
 		}(exec, submitter)
 	}
-	v = submitter
 	return
 }
 
@@ -125,12 +125,9 @@ func (exec *share) Close() (err error) {
 
 	defer exec.undo()
 
-	close(exec.stopCh)
+	close(exec.done)
 
-	ctx := exec.ctx
-	cancel := exec.ctxCancel
-	defer cancel()
-
+	ctx := context.TODO()
 	if closeTimeout := exec.closeTimeout; closeTimeout > 0 {
 		waitCtx, waitCtxCancel := context.WithTimeout(ctx, closeTimeout)
 		waitErr := exec.goroutines.WaitDownTo(waitCtx, 0)
@@ -150,26 +147,22 @@ func (exec *share) Close() (err error) {
 
 func (exec *share) start() {
 	exec.running.Store(true)
-	exec.stopCh = make(chan struct{})
+	exec.done = make(chan struct{})
 	exec.submitters.New = func() interface{} {
-		return &submitterImpl{
+		return &taskSubmitter{
 			lastUseTime: time.Time{},
 			ch:          make(chan taskEntry, 1),
 		}
 	}
 	go func(exec *share) {
-		ctx := exec.ctx
-		stopCh := exec.stopCh
-		var scratch []*submitterImpl
+		done := exec.done
+		var scratch []*taskSubmitter
 		maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
 		for {
 			select {
-			case <-ctx.Done():
-				stopped = true
-				break
-			case <-stopCh:
+			case <-done:
 				stopped = true
 				break
 			case <-timer.C:
@@ -194,7 +187,7 @@ func (exec *share) start() {
 	}(exec)
 }
 
-func (exec *share) clean(scratch *[]*submitterImpl) {
+func (exec *share) clean(scratch *[]*taskSubmitter) {
 	exec.locker.Lock()
 	ready := exec.ready
 	n := len(ready)
@@ -235,7 +228,7 @@ func (exec *share) clean(scratch *[]*submitterImpl) {
 	}
 }
 
-func (exec *share) release(submitter *submitterImpl) (ok bool) {
+func (exec *share) release(submitter *taskSubmitter) (ok bool) {
 	if exec.running.Load() {
 		submitter.lastUseTime = time.Now()
 		exec.locker.Lock()
@@ -247,7 +240,7 @@ func (exec *share) release(submitter *submitterImpl) (ok bool) {
 	return
 }
 
-func (exec *share) handle(submitter *submitterImpl) {
+func (exec *share) handle(submitter *taskSubmitter) {
 	if submitter == nil {
 		return
 	}
@@ -260,7 +253,7 @@ func (exec *share) handle(submitter *submitterImpl) {
 		if task == nil {
 			break
 		}
-		ctx := exec.ctx
+		ctx := entry.ctx
 		task.Handle(ctx)
 		if !exec.release(submitter) {
 			break

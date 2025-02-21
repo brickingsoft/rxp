@@ -12,28 +12,35 @@ import (
 )
 
 type alone struct {
-	ctx           context.Context
-	ctxCancel     context.CancelFunc
 	maxGoroutines int64
 	locker        sync.Locker
 	running       *atomic.Bool
+	done          chan struct{}
 	goroutines    *counter.Counter
 	closeTimeout  time.Duration
 	undo          maxprocs.Undo
 }
 
-func (exec *alone) Context() context.Context {
-	return exec.ctx
-}
+func (exec *alone) TryExecute(ctx context.Context, task Task) (err error) {
+	if task == nil {
+		return errors.New("task is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	}
+	exec.locker.Lock()
+	defer exec.locker.Unlock()
+	if !exec.running.Load() {
+		return ErrClosed
+	}
+	if exec.goroutines.Value() >= exec.maxGoroutines {
+		return ErrBusy
+	}
 
-func (exec *alone) TryExecute(ctx context.Context, task Task) (ok bool) {
-	if task == nil || !exec.Available() {
-		return false
-	}
-	if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
-		submitter.Submit(ctx, task)
-	}
-	return true
+	exec.goroutines.Incr()
+	go func(ctx context.Context, task Task, exec *alone) {
+		task.Handle(ctx)
+		exec.goroutines.Decr()
+	}(ctx, task, exec)
+
+	return nil
 }
 
 func (exec *alone) Execute(ctx context.Context, task Task) (err error) {
@@ -43,49 +50,38 @@ func (exec *alone) Execute(ctx context.Context, task Task) (err error) {
 	}
 	times := 10
 	for {
-		if submitter := exec.TryGetTaskSubmitter(); submitter != nil {
-			submitter.Submit(ctx, task)
+		err = exec.TryExecute(ctx, task)
+		if err == nil {
 			break
 		}
-		if !exec.running.Load() {
-			err = ErrClosed
-			return
+		if IsBusy(err) {
+			time.Sleep(ns500)
+			times--
+			if times < 0 {
+				times = 10
+				runtime.Gosched()
+			}
+			continue
 		}
-		time.Sleep(ns500)
-		times--
-		if times < 0 {
-			times = 10
-			runtime.Gosched()
-		}
+		break
 	}
 	return
+}
+
+func (exec *alone) Done() <-chan struct{} {
+	return exec.done
 }
 
 func (exec *alone) Goroutines() int64 {
 	return exec.goroutines.Value()
 }
 
-func (exec *alone) Available() bool {
-	return exec.running.Load() && exec.goroutines.Value() <= exec.maxGoroutines
+func (exec *alone) GoroutinesLeft() int64 {
+	return exec.maxGoroutines - exec.goroutines.Value()
 }
 
 func (exec *alone) Running() bool {
 	return exec.running.Load()
-}
-
-func (exec *alone) TryGetTaskSubmitter() (submitter TaskSubmitter) {
-	if !exec.running.Load() {
-		return
-	}
-	exec.locker.Lock()
-	if exec.Available() {
-		exec.goroutines.Incr()
-		exec.locker.Unlock()
-		submitter = exec
-	} else {
-		exec.locker.Unlock()
-	}
-	return
 }
 
 func (exec *alone) Close() (err error) {
@@ -96,10 +92,9 @@ func (exec *alone) Close() (err error) {
 
 	defer exec.undo()
 
-	ctx := exec.ctx
-	cancel := exec.ctxCancel
-	defer cancel()
+	close(exec.done)
 
+	ctx := context.TODO()
 	if closeTimeout := exec.closeTimeout; closeTimeout > 0 {
 		waitCtx, waitCtxCancel := context.WithTimeout(ctx, closeTimeout)
 		waitErr := exec.goroutines.WaitDownTo(waitCtx, 0)
@@ -117,14 +112,7 @@ func (exec *alone) Close() (err error) {
 	return
 }
 
-func (exec *alone) Submit(ctx context.Context, task Task) {
-	go func(ctx context.Context, task Task, exec *alone) {
-		task.Handle(ctx)
-		exec.goroutines.Decr()
-	}(ctx, task, exec)
-	return
-}
-
 func (exec *alone) start() {
 	exec.running.Store(true)
+	exec.done = make(chan struct{}, 1)
 }

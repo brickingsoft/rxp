@@ -86,6 +86,7 @@ func acquireChannel(size int) *channel {
 
 func releaseChannel(c *channel) {
 	// put
+	c.hset = false
 	size := c.size()
 	if size < 2 {
 		channel1.Put(c)
@@ -139,6 +140,7 @@ type message struct {
 func newChannel(size int) *channel {
 	c := &channel{
 		ch:       make(chan message, size),
+		hch:      make(chan any, 1),
 		deadline: time.Time{},
 	}
 	return c
@@ -146,6 +148,8 @@ func newChannel(size int) *channel {
 
 type channel struct {
 	ch       chan message
+	hch      chan any
+	hset     bool
 	deadline time.Time
 }
 
@@ -167,6 +171,10 @@ func (c *channel) isOnce() bool {
 
 func (c *channel) setDeadline(deadline time.Time) {
 	c.deadline = deadline
+}
+
+func (c *channel) setHandler(h any) {
+	c.hch <- h
 }
 
 func (c *channel) get() message {

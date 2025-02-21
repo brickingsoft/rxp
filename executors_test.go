@@ -23,7 +23,7 @@ func TestExecutors_TryExecute(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	ctx := executors.Context()
+	ctx := context.Background()
 	defer func(executors rxp.Executors) {
 		err := executors.Close()
 		if err != nil {
@@ -35,7 +35,7 @@ func TestExecutors_TryExecute(t *testing.T) {
 	}(executors)
 	submitted := 0
 	for i := 0; i < tasks; i++ {
-		if executors.TryExecute(ctx, &randTask{}) {
+		if err = executors.TryExecute(ctx, &randTask{}); err == nil {
 			submitted++
 		}
 	}

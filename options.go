@@ -1,7 +1,6 @@
 package rxp
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
@@ -20,9 +19,6 @@ type Option func(*Options) error
 // Options
 // 选项
 type Options struct {
-	// Ctx
-	// 根上下文
-	Ctx context.Context
 	// Mode
 	// 模式
 	Mode Mode
@@ -57,18 +53,6 @@ func WithMode(mode Mode) Option {
 		default:
 			return errors.New("invalid mode")
 		}
-		return nil
-	}
-}
-
-// WithContext
-// 设置根上下文。
-func WithContext(ctx context.Context) Option {
-	return func(o *Options) error {
-		if ctx == nil {
-			return errors.New("nil context")
-		}
-		o.Ctx = ctx
 		return nil
 	}
 }
