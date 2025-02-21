@@ -17,15 +17,10 @@ func (task *Task) Handle(ctx context.Context) {
 ```
 ```go
 executors, err := rxp.New()
-ctx := executors.Context()
+ctx := context.TODO()
 executors.TryExecute(ctx, &Task{})
 err := executors.Close()
 ```
-
-## 建议
-使用 `Executors.Context()` 作为全局上下文。
-
-例如：在 http 中，通过 `http.Request.WithContext()` 来设置 `Executors.Context()`。
 
 ## 异步
 注意：其中的上下文必须是`Executors.Context()`或者通过`rxp.With()`后的。
@@ -79,6 +74,3 @@ func (task *RandTask) Handle(ctx context.Context) {
 | github.com/alitto/pond/v2    | 2619438 | 876.9 | 224  | 7         |
 | github.com/alitto/pond       | 2025330 | 558.5 | 224  | 7         |
 
-## 使用案例
-开源软件
-* [rio](https://github.com/brickingsoft/rio): 异步网络库。
