@@ -38,7 +38,7 @@ func TestShare_TryExecute(t *testing.T) {
 }
 
 func BenchmarkShare_Execute_Parallel(b *testing.B) {
-	// BenchmarkShare_Execute_Parallel-20    	 2791100	       424.8 ns/op	         0 failed	       0 B/op	       0 allocs/op
+	// BenchmarkShare_Execute_Parallel-20    	 3035029	       395.8 ns/op	         0 failed	       0 B/op	       0 allocs/op
 
 	b.ReportAllocs()
 	executors, err := rxp.New(rxp.WithMode(rxp.ShareMode))

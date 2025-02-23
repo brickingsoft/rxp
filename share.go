@@ -13,16 +13,16 @@ import (
 )
 
 type share struct {
-	running                        atomic.Bool
-	locker                         spin.Locker
-	ready                          []*taskSubmitter
-	submitters                     sync.Pool
-	goroutines                     counter.Counter
-	maxGoroutines                  int64
-	maxReadyGoroutinesIdleDuration time.Duration
-	closeTimeout                   time.Duration
-	done                           chan struct{}
-	undo                           maxprocs.Undo
+	running                   atomic.Bool
+	locker                    spin.Locker
+	submitters                sync.Pool
+	goroutines                counter.Counter
+	maxGoroutines             int64
+	maxGoroutinesIdleDuration time.Duration
+	closeTimeout              time.Duration
+	done                      chan struct{}
+	undo                      maxprocs.Undo
+	idles                     []*taskSubmitter
 }
 
 func (exec *share) TryExecute(ctx context.Context, task Task) error {
@@ -36,7 +36,7 @@ func (exec *share) TryExecute(ctx context.Context, task Task) error {
 		return ErrBusy
 	}
 	if submitter := exec.tryGetTaskSubmitter(); submitter != nil {
-		return submitter.submit(ctx, exec.done, task)
+		return submitter.submit(ctx, task)
 	}
 	return ErrBusy
 }
@@ -88,7 +88,7 @@ func (exec *share) tryGetTaskSubmitter() (submitter *taskSubmitter) {
 
 	exec.locker.Lock()
 
-	ready := exec.ready
+	ready := exec.idles
 	n := len(ready) - 1
 	if n < 0 {
 		if exec.goroutines.Value() < exec.maxGoroutines {
@@ -98,7 +98,7 @@ func (exec *share) tryGetTaskSubmitter() (submitter *taskSubmitter) {
 	} else {
 		submitter = ready[n]
 		ready[n] = nil
-		exec.ready = ready[:n]
+		exec.idles = ready[:n]
 	}
 	exec.locker.Unlock()
 
@@ -157,7 +157,7 @@ func (exec *share) start() {
 	go func(exec *share) {
 		done := exec.done
 		var scratch []*taskSubmitter
-		maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
+		maxExecutorIdleDuration := exec.maxGoroutinesIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
 		for {
@@ -177,32 +177,32 @@ func (exec *share) start() {
 		timer.Stop()
 
 		exec.locker.Lock()
-		ready := exec.ready
+		ready := exec.idles
 		for i := range ready {
 			ready[i].stop()
 			ready[i] = nil
 		}
-		exec.ready = ready[:0]
+		exec.idles = ready[:0]
 		exec.locker.Unlock()
 	}(exec)
 }
 
 func (exec *share) clean(scratch *[]*taskSubmitter) {
 	exec.locker.Lock()
-	ready := exec.ready
+	ready := exec.idles
 	n := len(ready)
 	if n == 0 {
 		exec.locker.Unlock()
 		return
 	}
 
-	maxExecutorIdleDuration := exec.maxReadyGoroutinesIdleDuration
+	maxExecutorIdleDuration := exec.maxGoroutinesIdleDuration
 	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 
 	l, r, mid := 0, n-1, 0
 	for l <= r {
 		mid = (l + r) / 2
-		if criticalTime.After(exec.ready[mid].lastUseTime) {
+		if criticalTime.After(exec.idles[mid].lastUseTime) {
 			l = mid + 1
 		} else {
 			r = mid - 1
@@ -218,7 +218,7 @@ func (exec *share) clean(scratch *[]*taskSubmitter) {
 	for i = m; i < n; i++ {
 		ready[i] = nil
 	}
-	exec.ready = ready[:m]
+	exec.idles = ready[:m]
 	exec.locker.Unlock()
 
 	tmp := *scratch
@@ -233,7 +233,7 @@ func (exec *share) release(submitter *taskSubmitter) (ok bool) {
 		submitter.lastUseTime = time.Now()
 		exec.locker.Lock()
 		if ok = exec.running.Load(); ok {
-			exec.ready = append(exec.ready, submitter)
+			exec.idles = append(exec.idles, submitter)
 		}
 		exec.locker.Unlock()
 	}
@@ -259,4 +259,26 @@ func (exec *share) handle(submitter *taskSubmitter) {
 			break
 		}
 	}
+}
+
+type taskEntry struct {
+	ctx  context.Context
+	task Task
+}
+
+type taskSubmitter struct {
+	lastUseTime time.Time
+	ch          chan taskEntry
+}
+
+func (submitter *taskSubmitter) submit(ctx context.Context, task Task) (err error) {
+	submitter.ch <- taskEntry{
+		ctx:  ctx,
+		task: task,
+	}
+	return
+}
+
+func (submitter *taskSubmitter) stop() {
+	submitter.ch <- taskEntry{task: nil}
 }
