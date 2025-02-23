@@ -23,7 +23,7 @@ err := executors.Close()
 ```
 
 ## 异步
-注意：其中的上下文必须是`Executors.Context()`或者通过`rxp.With()`后的。
+注意：其中的上下文必须是通过`rxp.With()`后的。
 ```go
 // 尝试构建一个许诺
 promise, err := async.Make[int](ctx)
