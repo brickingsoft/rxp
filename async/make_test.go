@@ -108,7 +108,7 @@ func TestFailedWithResult(t *testing.T) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkMake_Share
-// BenchmarkMake_Share-20    	 2270600	       485.9 ns/op	         0 failed	     137 B/op	       2 allocs/op
+// BenchmarkMake_Share-20    	 2109921	       536.0 ns/op	         0 failed	     127 B/op	       2 allocs/op
 func BenchmarkMake_Share(b *testing.B) {
 	b.ReportAllocs()
 
@@ -147,7 +147,7 @@ func BenchmarkMake_Share(b *testing.B) {
 // pkg: github.com/brickingsoft/rxp/async
 // cpu: 13th Gen Intel(R) Core(TM) i5-13600K
 // BenchmarkMake_Alone
-// BenchmarkMake_Alone-20    	 3627508	       290.2 ns/op	         0 failed	     201 B/op	       3 allocs/op
+// BenchmarkMake_Alone-20    	 1056948	      1120 ns/op	         0 failed	     196 B/op	       3 allocs/op
 func BenchmarkMake_Alone(b *testing.B) {
 	b.ReportAllocs()
 

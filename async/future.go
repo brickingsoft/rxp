@@ -27,9 +27,12 @@ type futureImpl[R any] struct {
 
 func (f *futureImpl[R]) Handle(ctx context.Context) {
 	ch := f.ch
-	errInterceptor := f.errInterceptor
+
 	hi := <-ch.hch
 	handler := hi.(ResultHandler[R])
+
+	errInterceptor := f.errInterceptor
+
 	for {
 		e, err := ch.receive(ctx)
 		if err != nil {
@@ -108,6 +111,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		return
 	}
 	ch.hch <- handler
+	ch.hset = true
 	return
 }
 
