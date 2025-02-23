@@ -71,11 +71,11 @@ type Executors interface {
 // 创建执行池
 func New(options ...Option) (Executors, error) {
 	opts := Options{
-		Mode:                           ShareMode,
-		MaxprocsOptions:                maxprocs.Options{},
-		MaxGoroutines:                  defaultMaxGoroutines,
-		MaxReadyGoroutinesIdleDuration: defaultMaxReadyGoroutinesIdleDuration,
-		CloseTimeout:                   0,
+		Mode:                      ShareMode,
+		MaxprocsOptions:           maxprocs.Options{},
+		MaxGoroutines:             defaultMaxGoroutines,
+		MaxGoroutinesIdleDuration: defaultMaxGoroutinesIdleDuration,
+		CloseTimeout:              0,
 	}
 	if options != nil {
 		for _, option := range options {
@@ -93,24 +93,24 @@ func New(options ...Option) (Executors, error) {
 	switch opts.Mode {
 	case ShareMode:
 		exec := &share{
-			maxGoroutines:                  int64(opts.MaxGoroutines),
-			maxReadyGoroutinesIdleDuration: opts.MaxReadyGoroutinesIdleDuration,
-			locker:                         spin.Locker{},
-			running:                        atomic.Bool{},
-			ready:                          nil,
-			submitters:                     sync.Pool{},
-			goroutines:                     counter.Counter{},
-			closeTimeout:                   opts.CloseTimeout,
-			undo:                           undo,
+			maxGoroutines:             int64(opts.MaxGoroutines),
+			maxGoroutinesIdleDuration: opts.MaxGoroutinesIdleDuration,
+			locker:                    spin.Locker{},
+			running:                   atomic.Bool{},
+			idles:                     nil,
+			submitters:                sync.Pool{},
+			goroutines:                counter.Counter{},
+			closeTimeout:              opts.CloseTimeout,
+			undo:                      undo,
 		}
 		exec.start()
 		return exec, nil
 	case AloneMode:
 		exec := &alone{
 			maxGoroutines: int64(opts.MaxGoroutines),
-			locker:        spin.New(),
-			running:       new(atomic.Bool),
-			goroutines:    counter.New(),
+			locker:        spin.Locker{},
+			running:       false,
+			goroutines:    counter.Counter{},
 			closeTimeout:  opts.CloseTimeout,
 			undo:          undo,
 		}
@@ -120,35 +120,4 @@ func New(options ...Option) (Executors, error) {
 		undo()
 		return nil, errors.New("new executors failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define("invalid mode")))
 	}
-}
-
-type taskEntry struct {
-	ctx  context.Context
-	task Task
-}
-
-type taskSubmitter struct {
-	lastUseTime time.Time
-	ch          chan taskEntry
-}
-
-func (submitter *taskSubmitter) submit(ctx context.Context, done <-chan struct{}, task Task) (err error) {
-	select {
-	case <-done:
-		err = ErrClosed
-		break
-	case <-ctx.Done():
-		err = ctx.Err()
-		break
-	case submitter.ch <- taskEntry{
-		ctx:  ctx,
-		task: task,
-	}:
-		break
-	}
-	return
-}
-
-func (submitter *taskSubmitter) stop() {
-	submitter.ch <- taskEntry{task: nil}
 }
