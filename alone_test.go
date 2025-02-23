@@ -36,7 +36,7 @@ func TestAlone_TryExecute(t *testing.T) {
 }
 
 func BenchmarkAlone_Execute_Parallel(b *testing.B) {
-	// BenchmarkAlone_Execute_Parallel-20    	 5088980	       222.5 ns/op	         0 failed	      48 B/op	       1 allocs/op
+	// BenchmarkAlone_Execute_Parallel-20    	 1486959	       799.1 ns/op	         0 failed	      65 B/op	       1 allocs/op
 
 	b.ReportAllocs()
 	executors, err := rxp.New(rxp.WithMode(rxp.AloneMode))

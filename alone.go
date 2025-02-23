@@ -5,18 +5,17 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"github.com/brickingsoft/rxp/pkg/rate/counter"
+	"github.com/brickingsoft/rxp/pkg/rate/spin"
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
 type alone struct {
+	running       bool
 	maxGoroutines int64
-	locker        sync.Locker
-	running       *atomic.Bool
 	done          chan struct{}
-	goroutines    *counter.Counter
+	locker        spin.Locker
+	goroutines    counter.Counter
 	closeTimeout  time.Duration
 	undo          maxprocs.Undo
 }
@@ -27,7 +26,7 @@ func (exec *alone) TryExecute(ctx context.Context, task Task) (err error) {
 	}
 	exec.locker.Lock()
 	defer exec.locker.Unlock()
-	if !exec.running.Load() {
+	if !exec.running {
 		return ErrClosed
 	}
 	if exec.goroutines.Value() >= exec.maxGoroutines {
@@ -81,14 +80,19 @@ func (exec *alone) GoroutinesLeft() int64 {
 }
 
 func (exec *alone) Running() bool {
-	return exec.running.Load()
+	exec.locker.Lock()
+	defer exec.locker.Unlock()
+	return exec.running
 }
 
 func (exec *alone) Close() (err error) {
-	if ok := exec.running.CompareAndSwap(true, false); !ok {
+	exec.locker.Lock()
+	defer exec.locker.Unlock()
+	if !exec.running {
 		err = errors.New("executors already closed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 		return
 	}
+	exec.running = false
 
 	defer exec.undo()
 
@@ -113,6 +117,6 @@ func (exec *alone) Close() (err error) {
 }
 
 func (exec *alone) start() {
-	exec.running.Store(true)
+	exec.running = true
 	exec.done = make(chan struct{}, 1)
 }
