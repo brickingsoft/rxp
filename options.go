@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	defaultMaxGoroutines                  = 256 * 1024
-	defaultMaxReadyGoroutinesIdleDuration = 10 * time.Second
+	defaultMaxGoroutines             = 256 * 1024
+	defaultMaxGoroutinesIdleDuration = 10 * time.Second
 )
 
 // Option
@@ -28,12 +28,12 @@ type Options struct {
 	// MaxGoroutines
 	// 最大协程数
 	MaxGoroutines int
-	// MaxReadyGoroutinesIdleDuration
-	// 准备中协程最大闲置时长
+	// MaxGoroutinesIdleDuration
+	// 闲置中协程最大闲置时长
 	//
-	// 注意：该时长不是一个协程的最大空闲时长，是一组准备中的所有协程的最大空闲时长。
-	// 即时某个协程刚转为空闲状态，但是准备组已经空闲超时，则整个超时，进行释放处理。
-	MaxReadyGoroutinesIdleDuration time.Duration
+	// 注意：该时长不是一个协程的最大空闲时长，是一组闲置中的所有协程的最大空闲时长。
+	// 即时某个协程刚转为空闲状态，但是闲置组已经空闲超时，则整个超时，进行释放处理。
+	MaxGoroutinesIdleDuration time.Duration
 	// CloseTimeout
 	// 关闭超时时长
 	CloseTimeout time.Duration
@@ -104,14 +104,14 @@ func WithMaxGoroutines(n int) Option {
 	}
 }
 
-// WithMaxReadyGoroutinesIdleDuration
-// 设置准备中协程最大闲置时长
-func WithMaxReadyGoroutinesIdleDuration(d time.Duration) Option {
+// WithMaxGoroutinesIdleDuration
+// 设置闲置中协程最大闲置时长
+func WithMaxGoroutinesIdleDuration(d time.Duration) Option {
 	return func(o *Options) error {
 		if d < 1 {
-			d = defaultMaxReadyGoroutinesIdleDuration
+			d = defaultMaxGoroutinesIdleDuration
 		}
-		o.MaxReadyGoroutinesIdleDuration = d
+		o.MaxGoroutinesIdleDuration = d
 		return nil
 	}
 }
